@@ -1,0 +1,327 @@
+---
+# =============================================================================
+# VMStation Cross-Cluster Monitoring Configuration
+# =============================================================================
+# Configure promtail and node-exporter on remote clusters
+# to forward logs and metrics to masternode monitoring stack
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/configure-cross-cluster-monitoring.yaml
+#
+# =============================================================================
+
+- name: "Configure Cross-Cluster Monitoring - Log and Metric Forwarding"
+  hosts: compute_nodes
+  gather_facts: true
+  become: true
+  vars:
+    masternode_ip: "192.168.4.63"
+    loki_port: "31100"
+    prometheus_federation_port: "30090"
+  
+  tasks:
+    - name: "Display configuration banner"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Cross-Cluster Monitoring Configuration
+          Target: {{ inventory_hostname }}
+          Masternode: {{ masternode_ip }}
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # Check if RKE2 is running
+    - name: "Check if RKE2 is running"
+      ansible.builtin.systemd:
+        name: rke2-server
+      register: rke2_status
+      failed_when: false
+
+    - name: "Fail if RKE2 is not running"
+      ansible.builtin.fail:
+        msg: "RKE2 is not running on this node"
+      when: rke2_status.status.ActiveState is not defined or rke2_status.status.ActiveState != "active"
+
+    # Create monitoring namespace
+    - name: "Create monitoring namespace in RKE2"
+      ansible.builtin.shell: |
+        set -o pipefail
+        export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+        /var/lib/rancher/rke2/bin/kubectl create namespace monitoring --dry-run=client -o yaml | \
+        /var/lib/rancher/rke2/bin/kubectl apply -f -
+      args:
+        executable: /bin/bash
+      register: ns_result
+      failed_when: false
+      changed_when: "'created' in ns_result.stdout or 'configured' in ns_result.stdout"
+
+    # Deploy Promtail ConfigMap
+    - name: "Create Promtail ConfigMap for cross-cluster logging"
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+        cat <<'EOF' | /var/lib/rancher/rke2/bin/kubectl apply -f -
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: promtail-config
+          namespace: monitoring
+        data:
+          promtail.yaml: |
+            server:
+              http_listen_port: 9080
+              grpc_listen_port: 0
+            
+            positions:
+              filename: /tmp/positions.yaml
+            
+            clients:
+              - url: http://{{ masternode_ip }}:{{ loki_port }}/loki/api/v1/push
+                external_labels:
+                  cluster: rke2-homelab
+                  node: {{ inventory_hostname }}
+            
+            scrape_configs:
+            - job_name: kubernetes-pods
+              kubernetes_sd_configs:
+              - role: pod
+              pipeline_stages:
+              - docker: {}
+              relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_node_name]
+                target_label: node_name
+              - source_labels: [__meta_kubernetes_namespace]
+                target_label: namespace
+              - source_labels: [__meta_kubernetes_pod_name]
+                target_label: pod
+              - source_labels: [__meta_kubernetes_pod_container_name]
+                target_label: container
+              - replacement: kubernetes-pods
+                target_label: job
+              - replacement: /var/log/pods/*$$1/*.log
+                separator: /
+                source_labels:
+                - __meta_kubernetes_pod_uid
+                - __meta_kubernetes_pod_container_name
+                target_label: __path__
+        EOF
+      register: promtail_cm_result
+      changed_when: "'created' in promtail_cm_result.stdout or 'configured' in promtail_cm_result.stdout"
+
+    # Deploy Promtail RBAC
+    - name: "Create Promtail ServiceAccount and RBAC"
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+        cat <<'EOF' | /var/lib/rancher/rke2/bin/kubectl apply -f -
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: promtail
+          namespace: monitoring
+        ---
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRole
+        metadata:
+          name: promtail
+        rules:
+        - apiGroups: [""]
+          resources: [nodes, nodes/proxy, services, endpoints, pods]
+          verbs: [get, list, watch]
+        ---
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: promtail
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: promtail
+        subjects:
+        - kind: ServiceAccount
+          name: promtail
+          namespace: monitoring
+        EOF
+      register: promtail_rbac_result
+      changed_when: "'created' in promtail_rbac_result.stdout or 'configured' in promtail_rbac_result.stdout"
+
+    # Deploy Promtail DaemonSet
+    - name: "Deploy Promtail DaemonSet"
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+        cat <<'EOF' | /var/lib/rancher/rke2/bin/kubectl apply -f -
+        apiVersion: apps/v1
+        kind: DaemonSet
+        metadata:
+          name: promtail
+          namespace: monitoring
+        spec:
+          selector:
+            matchLabels:
+              app: promtail
+          template:
+            metadata:
+              labels:
+                app: promtail
+            spec:
+              serviceAccountName: promtail
+              containers:
+              - name: promtail
+                image: grafana/promtail:2.9.2
+                args: [-config.file=/etc/promtail/promtail.yaml]
+                volumeMounts:
+                - name: config
+                  mountPath: /etc/promtail
+                - name: varlog
+                  mountPath: /var/log
+                  readOnly: true
+                - name: positions
+                  mountPath: /tmp
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 64Mi
+                  limits:
+                    cpu: 200m
+                    memory: 128Mi
+              volumes:
+              - name: config
+                configMap:
+                  name: promtail-config
+              - name: varlog
+                hostPath:
+                  path: /var/log
+              - name: positions
+                emptyDir: {}
+        EOF
+      register: promtail_deploy_result
+      changed_when: "'created' in promtail_deploy_result.stdout or 'configured' in promtail_deploy_result.stdout"
+
+    # Deploy Node Exporter
+    - name: "Deploy Node Exporter DaemonSet"
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+        cat <<'EOF' | /var/lib/rancher/rke2/bin/kubectl apply -f -
+        apiVersion: apps/v1
+        kind: DaemonSet
+        metadata:
+          name: node-exporter
+          namespace: monitoring
+        spec:
+          selector:
+            matchLabels:
+              app: node-exporter
+          template:
+            metadata:
+              labels:
+                app: node-exporter
+            spec:
+              hostNetwork: true
+              hostPID: true
+              containers:
+              - name: node-exporter
+                image: prom/node-exporter:v1.7.0
+                args:
+                - '--path.procfs=/host/proc'
+                - '--path.sysfs=/host/sys'
+                - '--path.rootfs=/host/root'
+                ports:
+                - containerPort: 9100
+                  hostPort: 9100
+                  name: metrics
+                volumeMounts:
+                - name: proc
+                  mountPath: /host/proc
+                  readOnly: true
+                - name: sys
+                  mountPath: /host/sys
+                  readOnly: true
+                - name: root
+                  mountPath: /host/root
+                  readOnly: true
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 64Mi
+                  limits:
+                    cpu: 200m
+                    memory: 128Mi
+              volumes:
+              - name: proc
+                hostPath:
+                  path: /proc
+              - name: sys
+                hostPath:
+                  path: /sys
+              - name: root
+                hostPath:
+                  path: /
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: node-exporter
+          namespace: monitoring
+          annotations:
+            prometheus.io/scrape: "true"
+            prometheus.io/port: "9100"
+        spec:
+          type: ClusterIP
+          ports:
+          - port: 9100
+            targetPort: 9100
+            name: metrics
+          selector:
+            app: node-exporter
+        EOF
+      register: node_exporter_result
+      changed_when: "'created' in node_exporter_result.stdout or 'configured' in node_exporter_result.stdout"
+
+    # Wait for deployments
+    - name: "Wait for Promtail pods to be ready"
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+        /var/lib/rancher/rke2/bin/kubectl wait --for=condition=ready pod -l app=promtail -n monitoring --timeout=60s
+      register: promtail_ready
+      retries: 3
+      delay: 10
+      until: promtail_ready.rc == 0
+      failed_when: false
+      changed_when: false
+
+    - name: "Wait for Node Exporter pods to be ready"
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+        /var/lib/rancher/rke2/bin/kubectl wait --for=condition=ready pod -l app=node-exporter -n monitoring --timeout=60s
+      register: node_exporter_ready
+      retries: 3
+      delay: 10
+      until: node_exporter_ready.rc == 0
+      failed_when: false
+      changed_when: false
+
+    # Test Loki connectivity
+    - name: "Test Loki connectivity from remote cluster"
+      ansible.builtin.uri:
+        url: "http://{{ masternode_ip }}:{{ loki_port }}/ready"
+        method: GET
+        status_code: 200
+        timeout: 10
+      register: loki_test
+      failed_when: false
+
+    - name: "Display configuration complete message"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          ✅ Cross-Cluster Monitoring Configuration Complete
+          
+          Node: {{ inventory_hostname }}
+          Masternode: {{ masternode_ip }}
+          
+          Deployed:
+          - Promtail (forwarding logs to Loki at {{ masternode_ip }}:{{ loki_port }})
+          - Node Exporter (metrics available for federation)
+          
+          Loki Connectivity: {{ 'OK' if loki_test.status == 200 else 'FAILED' }}
+          
+          Verify in Grafana Loki dashboard:
+          - Filter by cluster=rke2-homelab
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

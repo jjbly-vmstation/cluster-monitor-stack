@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 27,
+  "title": "Syslog Infrastructure Monitoring",
+  "uid": "syslog-infrastructure",
+  "tags": ["syslog", "logs", "infrastructure", "vmstation", "enterprise"],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Syslog Server Status",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{"expr": "up{job=\"syslog-server\"}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"text": "Down", "color": "red"}, "1": {"text": "Up", "color": "green"}}, "type": "value"}], "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
+      "options": {"colorMode": "background", "graphMode": "none", "orientation": "auto", "textMode": "value"}
+    },
+    {
+      "id": 2,
+      "title": "Syslog Message Rate",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {"expr": "rate(syslog_ng_messages_received_total[5m])", "legendFormat": "Received", "refId": "A"},
+        {"expr": "rate(syslog_ng_messages_sent_total[5m])", "legendFormat": "Sent - {{destination}}", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "msg/s", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 500}]}}},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "last"]}}
+    },
+    {
+      "id": 3,
+      "title": "Critical and Error Logs (Last Hour)",
+      "type": "logs",
+      "datasource": "Loki",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 12},
+      "targets": [{"expr": "{job=\"syslog\"} | json | severity=~\"emergency|alert|critical|error\" | line_format \"{{.timestamp}} [{{.severity}}] {{.hostname}}: {{.message}}\"", "refId": "A"}],
+      "options": {"showTime": true, "showLabels": false, "showCommonLabels": false, "wrapLogMessage": true, "dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "sortOrder": "Descending"}
+    }
+  ],
+  "version": 1
+}

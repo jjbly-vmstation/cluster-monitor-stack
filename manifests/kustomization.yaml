@@ -1,0 +1,67 @@
+# VMStation Monitoring Stack - Kustomization
+# Use with: kubectl apply -k manifests/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: monitoring
+
+# Common labels for all resources
+commonLabels:
+  app.kubernetes.io/part-of: vmstation-monitoring-stack
+  vmstation.io/managed-by: kustomize
+
+# Resources to include
+resources:
+  # Namespace
+  - namespace.yaml
+  
+  # Prometheus
+  - prometheus/rbac.yaml
+  - prometheus/configmap.yaml
+  - prometheus/deployment.yaml
+  - prometheus/service.yaml
+  
+  # Grafana
+  - grafana/configmap.yaml
+  - grafana/dashboards-configmap.yaml
+  - grafana/deployment.yaml
+  - grafana/service.yaml
+  
+  # Loki
+  - loki/configmap.yaml
+  - loki/deployment.yaml
+  - loki/service.yaml
+  
+  # Promtail
+  - promtail/rbac.yaml
+  - promtail/configmap.yaml
+  - promtail/daemonset.yaml
+  
+  # Exporters
+  - exporters/node-exporter.yaml
+  - exporters/kube-state-metrics.yaml
+  - exporters/blackbox-exporter.yaml
+  - exporters/ipmi-exporter.yaml
+
+# Common annotations for all resources
+commonAnnotations:
+  app.kubernetes.io/version: "1.0.0"
+
+# Images - Override if needed
+images:
+  - name: prom/prometheus
+    newTag: v2.48.0
+  - name: grafana/grafana
+    newTag: "10.0.0"
+  - name: grafana/loki
+    newTag: 2.9.4
+  - name: grafana/promtail
+    newTag: 2.9.2
+  - name: prom/node-exporter
+    newTag: v1.6.1
+  - name: registry.k8s.io/kube-state-metrics/kube-state-metrics
+    newTag: v2.10.0
+  - name: prom/blackbox-exporter
+    newTag: v0.25.0
+  - name: prometheuscommunity/ipmi-exporter
+    newTag: v1.6.1

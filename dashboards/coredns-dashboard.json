@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 27,
+  "title": "CoreDNS Performance & Health",
+  "uid": "coredns-performance",
+  "tags": ["coredns", "dns", "kubernetes", "vmstation", "enterprise"],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "CoreDNS Status",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "targets": [{"expr": "sum(up{job=\"kubernetes-service-endpoints\", service=~\".*coredns.*|.*kube-dns.*\"})", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "short", "mappings": [{"options": {"0": {"text": "Down", "color": "red"}}, "type": "value"}], "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 1}, {"color": "green", "value": 2}]}}},
+      "options": {"colorMode": "background", "graphMode": "none", "orientation": "auto", "textMode": "value_and_name"}
+    },
+    {
+      "id": 2,
+      "title": "DNS Query Rate by Type",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [{"expr": "sum by (type) (rate(coredns_dns_requests_total[5m]))", "legendFormat": "{{type}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "qps", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never", "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max", "last"]}}
+    },
+    {
+      "id": 3,
+      "title": "DNS Response Time (Percentiles)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {"expr": "histogram_quantile(0.99, sum(rate(coredns_dns_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "99th Percentile", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum(rate(coredns_dns_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "95th Percentile", "refId": "B"},
+        {"expr": "histogram_quantile(0.50, sum(rate(coredns_dns_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "Median", "refId": "C"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 5, "lineWidth": 2, "showPoints": "never"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.05}, {"color": "red", "value": 0.1}]}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    }
+  ],
+  "version": 1
+}
