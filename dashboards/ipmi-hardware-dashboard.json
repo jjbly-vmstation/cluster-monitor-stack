@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 27,
+  "title": "IPMI Hardware Monitoring - RHEL 10 Enterprise Server",
+  "uid": "ipmi-hardware",
+  "tags": ["ipmi", "hardware", "rhel10", "enterprise", "vmstation"],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "1m",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Server Temperature Sensors",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{"expr": "ipmi_temperature_celsius{node=\"homelab\"}", "legendFormat": "{{sensor}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "celsius", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 65}, {"color": "orange", "value": 75}, {"color": "red", "value": 85}]}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max", "last"]}}
+    },
+    {
+      "id": 2,
+      "title": "Fan Speeds",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [{"expr": "ipmi_fan_speed_rpm{node=\"homelab\"}", "legendFormat": "{{sensor}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "rpm", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 1000}, {"color": "green", "value": 2000}]}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "min", "last"]}}
+    },
+    {
+      "id": 3,
+      "title": "Power Consumption",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{"expr": "ipmi_dcmi_power_consumption_watts{node=\"homelab\"}", "legendFormat": "Power Draw", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "watt", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "showPoints": "never"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 200}, {"color": "red", "value": 300}]}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom", "calcs": ["mean", "max", "last"]}}
+    }
+  ],
+  "version": 1
+}

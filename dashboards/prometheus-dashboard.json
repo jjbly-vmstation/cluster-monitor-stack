@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 27,
+  "title": "Prometheus Metrics & Health",
+  "uid": "prometheus-health",
+  "tags": ["prometheus", "metrics", "vmstation"],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Prometheus Targets Up",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{"expr": "sum(up)", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 1}, {"color": "green", "value": 3}]}}},
+      "options": {"colorMode": "value", "graphMode": "area", "orientation": "auto"}
+    },
+    {
+      "id": 2,
+      "title": "Total Scrape Targets",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [{"expr": "count(up)", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
+      "options": {"colorMode": "value", "graphMode": "area", "orientation": "auto"}
+    },
+    {
+      "id": 3,
+      "title": "Samples Ingested Rate",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [{"expr": "rate(prometheus_tsdb_head_samples_appended_total[5m])", "legendFormat": "Samples/sec", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "ops", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}}}
+    }
+  ],
+  "version": 1
+}

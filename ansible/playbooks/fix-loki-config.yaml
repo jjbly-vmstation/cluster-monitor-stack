@@ -1,0 +1,125 @@
+---
+# =============================================================================
+# VMStation Loki Configuration Fix
+# =============================================================================
+# Reapplies Loki ConfigMap from repository and ensures proper permissions
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/fix-loki-config.yaml
+#
+# =============================================================================
+
+- name: "Fix Loki Configuration and Permissions"
+  hosts: monitoring_nodes
+  gather_facts: true
+  become: true
+  vars:
+    manifests_dir: "{{ playbook_dir }}/../../manifests"
+    kubeconfig: "/etc/kubernetes/admin.conf"
+  
+  tasks:
+    - name: "Display Loki fix banner"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Loki Configuration Fix
+          - Reapply ConfigMap from repository
+          - Ensure proper hostPath ownership
+          - Restart Loki deployment
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    - name: "Check if monitoring namespace exists"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} get namespace monitoring
+      register: monitoring_namespace
+      failed_when: false
+      changed_when: false
+
+    - name: "Create monitoring namespace if missing"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} create namespace monitoring --dry-run=client -o yaml | kubectl --kubeconfig={{ kubeconfig }} apply -f -
+      when: monitoring_namespace.rc != 0
+      changed_when: true
+
+    - name: "Create Loki WAL and required subdirectories with correct ownership"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+        owner: '10001'
+        group: '10001'
+      loop:
+        - /srv/monitoring_data/loki
+        - /srv/monitoring_data/loki/wal
+        - /srv/monitoring_data/loki/chunks
+        - /srv/monitoring_data/loki/index
+        - /srv/monitoring_data/loki/index_cache
+        - /srv/monitoring_data/loki/compactor
+      failed_when: false
+
+    - name: "Reapply Loki manifests from repository"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/loki/
+      register: loki_apply
+      changed_when: "'configured' in loki_apply.stdout or 'created' in loki_apply.stdout"
+
+    - name: "Display apply result"
+      ansible.builtin.debug:
+        msg: "{{ loki_apply.stdout_lines }}"
+
+    - name: "Restart Loki StatefulSet to pick up ConfigMap changes"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} rollout restart statefulset/loki -n monitoring
+      register: loki_restart
+      changed_when: true
+
+    - name: "Wait for Loki StatefulSet to be ready"
+      ansible.builtin.command:
+        cmd: >
+          kubectl --kubeconfig={{ kubeconfig }} rollout status statefulset/loki
+          -n monitoring --timeout=180s
+      register: loki_ready
+      retries: 3
+      delay: 10
+      until: loki_ready.rc == 0
+
+    - name: "Get Loki pod status"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} get pods -n monitoring -l app=loki
+      register: loki_pods
+      changed_when: false
+
+    - name: "Display Loki pod status"
+      ansible.builtin.debug:
+        msg: "{{ loki_pods.stdout_lines }}"
+
+    - name: "Verify Loki is responding"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:31100/ready"
+        method: GET
+        status_code: 200
+      register: loki_ready_check
+      retries: 3
+      delay: 5
+      until: loki_ready_check.status == 200
+      failed_when: false
+
+    - name: "Display fix completion message"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          ✅ Loki Configuration Fix Complete
+          
+          Status:
+          - ConfigMap reapplied from repository
+          - StatefulSet restarted
+          - Pod status: {{ 'Ready' if loki_ready_check.status == 200 else 'Check logs for errors' }}
+          
+          Next Steps:
+          - Check logs: kubectl logs -n monitoring -l app=loki --tail=50
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    - name: "Fail if Loki is not ready"
+      ansible.builtin.fail:
+        msg: "Loki deployment failed to become ready. Check logs: kubectl logs -n monitoring -l app=loki"
+      when: loki_ready.rc != 0
