@@ -84,6 +84,9 @@ data:
         replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
     
     # Node Exporter - All nodes
+    # NOTE: These IP addresses are specific to the VMStation homelab environment.
+    # For other deployments, update the targets or use Kustomize overlays.
+    # Consider using Kubernetes service discovery for dynamic environments.
     - job_name: 'node-exporter'
       static_configs:
       - targets:

@@ -41,8 +41,11 @@ spec:
         - containerPort: 3000
           name: web
         env:
+        # Admin password - In production, use a Secret:
+        # kubectl create secret generic grafana-admin-secret --from-literal=password=<your-password> -n monitoring
+        # Then reference: secretKeyRef: { name: grafana-admin-secret, key: password }
         - name: GF_SECURITY_ADMIN_PASSWORD
-          value: "admin"  # Change in production - use Secret
+          value: "admin"  # TODO: Replace with Secret in production
         - name: GF_USERS_ALLOW_SIGN_UP
           value: "false"
         # Enable anonymous access for monitoring dashboards

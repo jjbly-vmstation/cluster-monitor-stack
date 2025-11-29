@@ -146,8 +146,14 @@ data:
         user: "${IPMI_USER}"
         password: "${IPMI_PASSWORD}"
 ---
-# Remote IPMI Exporter for Enterprise Server at 192.168.4.60
 # NOTE: Set replicas to 0 by default - only scale up when credentials are configured
+# To enable remote IPMI monitoring:
+# 1. Create the ipmi-credentials secret:
+#    kubectl create secret generic ipmi-credentials \
+#      --from-literal=username=<your-ipmi-user> \
+#      --from-literal=password=<your-ipmi-password> \
+#      -n monitoring
+# 2. Scale the deployment: kubectl scale deployment ipmi-exporter-remote -n monitoring --replicas=1
 apiVersion: apps/v1
 kind: Deployment
 metadata:
