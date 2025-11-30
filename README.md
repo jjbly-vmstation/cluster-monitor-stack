@@ -49,25 +49,25 @@ After deployment, access the monitoring stack:
 | Prometheus | http://\<node-ip\>:30090   | N/A                     |
 | Loki       | http://\<node-ip\>:31100   | N/A                     |
 
+
 ## Directory Structure
 
 ```
 cluster-monitor-stack/
 ├── manifests/           # Kubernetes manifests
-│   ├── namespace.yaml
-│   ├── prometheus/      # Prometheus deployment
-│   ├── grafana/         # Grafana deployment
-│   ├── loki/            # Loki deployment
-│   ├── promtail/        # Promtail DaemonSet
-│   ├── exporters/       # Metric exporters
-│   └── kustomization.yaml
 ├── dashboards/          # Grafana dashboard JSON files
 ├── ansible/             # Ansible playbooks
-│   ├── playbooks/
-│   └── inventory/
-├── docs/                # Documentation
-└── scripts/             # Utility scripts
+├── scripts/             # Utility scripts
 ```
+
+## Documentation
+
+All detailed monitoring and troubleshooting documentation has been centralized in the [cluster-docs/components/](../cluster-docs/components/) directory. Please refer to that location for:
+- Grafana dashboards
+- Monitoring fixes
+- Troubleshooting
+
+This repository only contains the README and improvements/standards documentation.
 
 ## Components
 
