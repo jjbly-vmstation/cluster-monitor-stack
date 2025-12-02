@@ -1,0 +1,52 @@
+---
+# Loki Role - Deploy Loki Log Aggregation
+
+- name: Ensure Loki data directories exist with correct ownership
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ loki_user_id }}"
+    group: "{{ loki_group_id }}"
+  loop:
+    - "{{ loki_data_dir }}"
+    - "{{ loki_data_dir }}/wal"
+    - "{{ loki_data_dir }}/chunks"
+    - "{{ loki_data_dir }}/index"
+    - "{{ loki_data_dir }}/index_cache"
+    - "{{ loki_data_dir }}/compactor"
+  failed_when: false
+
+- name: Deploy Loki ConfigMap
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/loki/configmap.yaml
+  register: loki_configmap
+  changed_when: "'configured' in loki_configmap.stdout or 'created' in loki_configmap.stdout"
+
+- name: Deploy Loki StatefulSet/Deployment
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/loki/deployment.yaml
+  register: loki_deployment
+  changed_when: "'configured' in loki_deployment.stdout or 'created' in loki_deployment.stdout"
+
+- name: Deploy Loki Service
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/loki/service.yaml
+  register: loki_service
+  changed_when: "'configured' in loki_service.stdout or 'created' in loki_service.stdout"
+
+- name: Wait for Loki to be ready
+  ansible.builtin.command:
+    cmd: >
+      kubectl --kubeconfig={{ kubeconfig }} wait --for=condition=ready pod
+      -l app=loki -n {{ monitoring_namespace }} --timeout=180s
+  register: loki_status
+  retries: "{{ loki_wait_retries }}"
+  delay: "{{ loki_wait_delay }}"
+  until: loki_status.rc == 0
+  changed_when: false
+  failed_when: false
+
+- name: Display Loki deployment status
+  ansible.builtin.debug:
+    msg: "Loki deployment: {{ 'Ready' if loki_status.rc == 0 else 'Pending - check logs' }}"

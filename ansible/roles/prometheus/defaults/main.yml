@@ -1,0 +1,25 @@
+---
+# Prometheus Role - Default Variables
+
+# Monitoring namespace
+monitoring_namespace: monitoring
+
+# Kubeconfig location
+kubeconfig: /etc/kubernetes/admin.conf
+
+# Manifests directory (relative to playbook)
+manifests_dir: "{{ playbook_dir }}/../../manifests"
+
+# Prometheus data directory
+prometheus_data_dir: /srv/monitoring_data/prometheus
+
+# User/Group IDs for prometheus (nobody user)
+prometheus_user_id: 65534
+prometheus_group_id: 65534
+
+# Prometheus NodePort
+prometheus_nodeport: 30090
+
+# Wait settings
+prometheus_wait_retries: 20
+prometheus_wait_delay: 10

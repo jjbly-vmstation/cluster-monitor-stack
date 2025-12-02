@@ -1,0 +1,212 @@
+---
+# =============================================================================
+# VMStation Monitoring Data Restore
+# =============================================================================
+# Restore monitoring stack data from backup
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/restore-monitoring-data.yaml -e "restore_from=/srv/backups/monitoring/2024-01-15-1430"
+#
+# =============================================================================
+
+- name: "Restore Monitoring Stack Data"
+  hosts: monitoring_nodes
+  gather_facts: true
+  become: true
+  vars:
+    kubeconfig: "/etc/kubernetes/admin.conf"
+    monitoring_namespace: monitoring
+    backup_base_dir: "/srv/backups/monitoring"
+    
+    # Target data directories
+    prometheus_data_dir: /srv/monitoring_data/prometheus
+    grafana_data_dir: /srv/monitoring_data/grafana
+    loki_data_dir: /srv/monitoring_data/loki
+  
+  tasks:
+    - name: "Validate restore_from variable is set"
+      ansible.builtin.fail:
+        msg: "Please specify backup directory with -e 'restore_from=/path/to/backup'"
+      when: restore_from is not defined
+
+    - name: "Display restore banner"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Monitoring Data Restore
+          Source: {{ restore_from }}
+          
+          WARNING: This will overwrite current monitoring data!
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # =============================================================================
+    # Validate Backup
+    # =============================================================================
+    
+    - name: "Check backup directory exists"
+      ansible.builtin.stat:
+        path: "{{ restore_from }}"
+      register: backup_dir_stat
+
+    - name: "Fail if backup directory doesn't exist"
+      ansible.builtin.fail:
+        msg: "Backup directory {{ restore_from }} does not exist"
+      when: not backup_dir_stat.stat.exists
+
+    - name: "Read backup metadata"
+      ansible.builtin.slurp:
+        src: "{{ restore_from }}/backup-metadata.yaml"
+      register: backup_metadata_raw
+      failed_when: false
+
+    - name: "Display backup information"
+      ansible.builtin.debug:
+        msg: "{{ backup_metadata_raw.content | b64decode }}"
+      when: backup_metadata_raw.content is defined
+
+    # =============================================================================
+    # Stop Monitoring Components
+    # =============================================================================
+    
+    - name: "Scale down monitoring deployments"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} scale {{ item }} --replicas=0 -n {{ monitoring_namespace }}
+      loop:
+        - deployment/grafana
+        - statefulset/prometheus
+        - statefulset/loki
+      register: scale_down
+      changed_when: true
+      failed_when: false
+
+    - name: "Wait for pods to terminate"
+      ansible.builtin.pause:
+        seconds: 15
+
+    # =============================================================================
+    # Restore Data Directories
+    # =============================================================================
+    
+    - name: "Check backup component directories"
+      ansible.builtin.stat:
+        path: "{{ restore_from }}/{{ item }}"
+      register: backup_components
+      loop:
+        - prometheus
+        - grafana
+        - loki
+
+    - name: "Restore Prometheus data"
+      ansible.builtin.shell: |
+        set -o pipefail
+        rsync -av --delete {{ restore_from }}/prometheus/ {{ prometheus_data_dir }}/
+      args:
+        executable: /bin/bash
+      register: prometheus_restore
+      when: backup_components.results[0].stat.exists
+      changed_when: true
+
+    - name: "Restore Grafana data"
+      ansible.builtin.shell: |
+        set -o pipefail
+        rsync -av --delete {{ restore_from }}/grafana/ {{ grafana_data_dir }}/
+      args:
+        executable: /bin/bash
+      register: grafana_restore
+      when: backup_components.results[1].stat.exists
+      changed_when: true
+
+    - name: "Restore Loki data"
+      ansible.builtin.shell: |
+        set -o pipefail
+        rsync -av --delete {{ restore_from }}/loki/ {{ loki_data_dir }}/
+      args:
+        executable: /bin/bash
+      register: loki_restore
+      when: backup_components.results[2].stat.exists
+      changed_when: true
+
+    # =============================================================================
+    # Fix Permissions
+    # =============================================================================
+    
+    - name: "Fix Prometheus data permissions"
+      ansible.builtin.file:
+        path: "{{ prometheus_data_dir }}"
+        state: directory
+        owner: '65534'
+        group: '65534'
+        mode: '0755'
+        recurse: true
+      when: backup_components.results[0].stat.exists
+
+    - name: "Fix Grafana data permissions"
+      ansible.builtin.file:
+        path: "{{ grafana_data_dir }}"
+        state: directory
+        owner: '472'
+        group: '472'
+        mode: '0755'
+        recurse: true
+      when: backup_components.results[1].stat.exists
+
+    - name: "Fix Loki data permissions"
+      ansible.builtin.file:
+        path: "{{ loki_data_dir }}"
+        state: directory
+        owner: '10001'
+        group: '10001'
+        mode: '0755'
+        recurse: true
+      when: backup_components.results[2].stat.exists
+
+    # =============================================================================
+    # Restart Monitoring Components
+    # =============================================================================
+    
+    - name: "Scale up monitoring deployments"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} scale {{ item.name }} --replicas={{ item.replicas }} -n {{ monitoring_namespace }}
+      loop:
+        - { name: 'deployment/grafana', replicas: 1 }
+        - { name: 'statefulset/prometheus', replicas: 1 }
+        - { name: 'statefulset/loki', replicas: 1 }
+      register: scale_up
+      changed_when: true
+      failed_when: false
+
+    - name: "Wait for components to start"
+      ansible.builtin.pause:
+        seconds: 30
+
+    # =============================================================================
+    # Verification
+    # =============================================================================
+    
+    - name: "Get pod status"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} get pods -n {{ monitoring_namespace }}
+      register: pod_status
+      changed_when: false
+
+    - name: "Display pod status"
+      ansible.builtin.debug:
+        msg: "{{ pod_status.stdout_lines }}"
+
+    - name: "Display restore summary"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Restore Complete
+          
+          Source: {{ restore_from }}
+          
+          Components restored:
+          - Prometheus: {{ 'Yes' if backup_components.results[0].stat.exists else 'No' }}
+          - Grafana: {{ 'Yes' if backup_components.results[1].stat.exists else 'No' }}
+          - Loki: {{ 'Yes' if backup_components.results[2].stat.exists else 'No' }}
+          
+          Next steps:
+          - Verify services: kubectl get pods -n monitoring
+          - Check Grafana: http://{{ ansible_default_ipv4.address }}:30300
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

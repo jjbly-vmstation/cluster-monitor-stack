@@ -1,0 +1,64 @@
+---
+# Exporters Role - Deploy Prometheus Exporters
+
+- name: Deploy Node Exporter
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/exporters/node-exporter.yaml
+  register: node_exporter
+  changed_when: "'configured' in node_exporter.stdout or 'created' in node_exporter.stdout"
+  when: deploy_node_exporter | bool
+
+- name: Deploy Kube-State-Metrics
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/exporters/kube-state-metrics.yaml
+  register: kube_state_metrics
+  changed_when: "'configured' in kube_state_metrics.stdout or 'created' in kube_state_metrics.stdout"
+  when: deploy_kube_state_metrics | bool
+
+- name: Deploy Blackbox Exporter
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/exporters/blackbox-exporter.yaml
+  register: blackbox_exporter
+  changed_when: "'configured' in blackbox_exporter.stdout or 'created' in blackbox_exporter.stdout"
+  when: deploy_blackbox_exporter | bool
+
+- name: Deploy IPMI Exporter
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/exporters/ipmi-exporter.yaml
+  register: ipmi_exporter
+  changed_when: "'configured' in ipmi_exporter.stdout or 'created' in ipmi_exporter.stdout"
+  when: deploy_ipmi_exporter | bool
+
+- name: Wait for Node Exporter pods to be ready
+  ansible.builtin.command:
+    cmd: >
+      kubectl --kubeconfig={{ kubeconfig }} wait --for=condition=ready pod
+      -l app=node-exporter -n {{ monitoring_namespace }} --timeout=60s
+  register: node_exporter_status
+  retries: "{{ exporter_wait_retries }}"
+  delay: "{{ exporter_wait_delay }}"
+  until: node_exporter_status.rc == 0
+  changed_when: false
+  failed_when: false
+  when: deploy_node_exporter | bool
+
+- name: Wait for Kube-State-Metrics to be ready
+  ansible.builtin.command:
+    cmd: >
+      kubectl --kubeconfig={{ kubeconfig }} wait --for=condition=ready pod
+      -l app=kube-state-metrics -n {{ monitoring_namespace }} --timeout=60s
+  register: ksm_status
+  retries: "{{ exporter_wait_retries }}"
+  delay: "{{ exporter_wait_delay }}"
+  until: ksm_status.rc == 0
+  changed_when: false
+  failed_when: false
+  when: deploy_kube_state_metrics | bool
+
+- name: Display exporters deployment status
+  ansible.builtin.debug:
+    msg:
+      - "Node Exporter: {{ 'Ready' if (node_exporter_status.rc | default(1)) == 0 else 'Pending' }}"
+      - "Kube-State-Metrics: {{ 'Ready' if (ksm_status.rc | default(1)) == 0 else 'Pending' }}"
+      - "Blackbox Exporter: Deployed"
+      - "IPMI Exporter: {{ 'Deployed' if deploy_ipmi_exporter | bool else 'Skipped' }}"

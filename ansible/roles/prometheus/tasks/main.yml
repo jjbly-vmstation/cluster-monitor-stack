@@ -1,0 +1,42 @@
+---
+# Prometheus Role - Deploy Prometheus Monitoring
+
+- name: Deploy Prometheus RBAC
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/prometheus/rbac.yaml
+  register: prometheus_rbac
+  changed_when: "'configured' in prometheus_rbac.stdout or 'created' in prometheus_rbac.stdout"
+
+- name: Deploy Prometheus ConfigMap
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/prometheus/configmap.yaml
+  register: prometheus_configmap
+  changed_when: "'configured' in prometheus_configmap.stdout or 'created' in prometheus_configmap.stdout"
+
+- name: Deploy Prometheus StatefulSet/Deployment
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/prometheus/deployment.yaml
+  register: prometheus_deployment
+  changed_when: "'configured' in prometheus_deployment.stdout or 'created' in prometheus_deployment.stdout"
+
+- name: Deploy Prometheus Service
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/prometheus/service.yaml
+  register: prometheus_service
+  changed_when: "'configured' in prometheus_service.stdout or 'created' in prometheus_service.stdout"
+
+- name: Wait for Prometheus to be ready
+  ansible.builtin.command:
+    cmd: >
+      kubectl --kubeconfig={{ kubeconfig }} wait --for=condition=ready pod
+      -l app=prometheus -n {{ monitoring_namespace }} --timeout=180s
+  register: prometheus_status
+  retries: "{{ prometheus_wait_retries }}"
+  delay: "{{ prometheus_wait_delay }}"
+  until: prometheus_status.rc == 0
+  changed_when: false
+  failed_when: false
+
+- name: Display Prometheus deployment status
+  ansible.builtin.debug:
+    msg: "Prometheus deployment: {{ 'Ready' if prometheus_status.rc == 0 else 'Pending - check logs' }}"

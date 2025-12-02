@@ -1,0 +1,25 @@
+---
+# Grafana Role - Default Variables
+
+# Monitoring namespace
+monitoring_namespace: monitoring
+
+# Kubeconfig location
+kubeconfig: /etc/kubernetes/admin.conf
+
+# Manifests directory (relative to playbook)
+manifests_dir: "{{ playbook_dir }}/../../manifests"
+
+# Grafana data directory
+grafana_data_dir: /srv/monitoring_data/grafana
+
+# User/Group IDs for grafana
+grafana_user_id: 472
+grafana_group_id: 472
+
+# Grafana NodePort
+grafana_nodeport: 30300
+
+# Wait settings
+grafana_wait_retries: 20
+grafana_wait_delay: 10
