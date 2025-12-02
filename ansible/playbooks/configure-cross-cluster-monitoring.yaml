@@ -6,7 +6,7 @@
 # to forward logs and metrics to masternode monitoring stack
 #
 # Usage:
-#   ansible-playbook -i inventory/hosts.yml playbooks/configure-cross-cluster-monitoring.yaml
+#   ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/configure-cross-cluster-monitoring.yaml
 #
 # =============================================================================
 

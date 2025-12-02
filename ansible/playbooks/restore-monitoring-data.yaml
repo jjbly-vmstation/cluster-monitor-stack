@@ -5,7 +5,7 @@
 # Restore monitoring stack data from backup
 #
 # Usage:
-#   ansible-playbook -i inventory/hosts.yml playbooks/restore-monitoring-data.yaml -e "restore_from=/srv/backups/monitoring/2024-01-15-1430"
+#   ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/restore-monitoring-data.yaml -e "restore_from=/srv/backups/monitoring/2024-01-15-1430"
 #
 # =============================================================================
 

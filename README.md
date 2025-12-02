@@ -36,7 +36,7 @@ Or using Ansible:
 
 ```bash
 cd ansible
-ansible-playbook -i inventory/hosts.yml playbooks/deploy-monitoring-stack.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/deploy-monitoring-stack.yaml
 ```
 
 ### Access
@@ -135,22 +135,22 @@ cd ansible
 ansible-galaxy collection install -r requirements.yml
 
 # Deploy monitoring stack
-ansible-playbook -i inventory/hosts.yml playbooks/deploy-monitoring-stack.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/deploy-monitoring-stack.yaml
 
 # Fix Loki configuration issues
-ansible-playbook -i inventory/hosts.yml playbooks/fix-loki-config.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/fix-loki-config.yaml
 
 # Remediate monitoring issues
-ansible-playbook -i inventory/hosts.yml playbooks/remediate-monitoring.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/remediate-monitoring.yaml
 
 # Update Grafana dashboards
-ansible-playbook -i inventory/hosts.yml playbooks/update-grafana-dashboards.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/update-grafana-dashboards.yaml
 
 # Backup monitoring data
-ansible-playbook -i inventory/hosts.yml playbooks/backup-monitoring-data.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/backup-monitoring-data.yaml
 
 # Restore monitoring data
-ansible-playbook -i inventory/hosts.yml playbooks/restore-monitoring-data.yaml \
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/restore-monitoring-data.yaml \
   -e "restore_from=/srv/backups/monitoring/YYYY-MM-DD-HHMM"
 ```
 

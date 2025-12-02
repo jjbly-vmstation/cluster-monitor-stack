@@ -5,7 +5,7 @@
 # Automated remediation for common monitoring stack issues
 #
 # Usage:
-#   ansible-playbook -i inventory/hosts.yml playbooks/remediate-monitoring.yaml
+#   ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/remediate-monitoring.yaml
 #
 # =============================================================================
 

@@ -5,7 +5,7 @@
 # Deploy complete monitoring stack using Kustomize
 #
 # Usage:
-#   ansible-playbook -i inventory/hosts.yml playbooks/deploy-monitoring-stack.yaml
+#   ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/deploy-monitoring-stack.yaml
 #
 # =============================================================================
 

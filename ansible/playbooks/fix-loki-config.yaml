@@ -5,7 +5,7 @@
 # Reapplies Loki ConfigMap from repository and ensures proper permissions
 #
 # Usage:
-#   ansible-playbook -i inventory/hosts.yml playbooks/fix-loki-config.yaml
+#   ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/fix-loki-config.yaml
 #
 # =============================================================================
 

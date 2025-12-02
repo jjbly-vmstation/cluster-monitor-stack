@@ -24,7 +24,7 @@ ansible/
 ├── ansible.cfg              # Ansible configuration
 ├── requirements.yml         # Required Ansible collections
 ├── inventory/
-│   └── hosts.yml            # Inventory file
+│   └── /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml            # Inventory file
 ├── playbooks/
 │   ├── deploy-monitoring-stack.yaml      # Full stack deployment
 │   ├── fix-loki-config.yaml              # Loki configuration fixes
@@ -50,7 +50,7 @@ ansible/
 Deploy the complete monitoring stack:
 
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/deploy-monitoring-stack.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/deploy-monitoring-stack.yaml
 ```
 
 ### Fix Loki Configuration
@@ -58,7 +58,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/deploy-monitoring-stack.yaml
 Fix Loki configuration drift and permission issues:
 
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/fix-loki-config.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/fix-loki-config.yaml
 ```
 
 ### Remediate Monitoring Issues
@@ -66,7 +66,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/fix-loki-config.yaml
 Auto-remediate common monitoring stack issues:
 
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/remediate-monitoring.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/remediate-monitoring.yaml
 ```
 
 ### Update Grafana Dashboards
@@ -74,7 +74,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/remediate-monitoring.yaml
 Update Grafana dashboards from repository:
 
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/update-grafana-dashboards.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/update-grafana-dashboards.yaml
 ```
 
 ### Backup Monitoring Data
@@ -82,13 +82,13 @@ ansible-playbook -i inventory/hosts.yml playbooks/update-grafana-dashboards.yaml
 Backup Prometheus, Grafana, and Loki data:
 
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/backup-monitoring-data.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/backup-monitoring-data.yaml
 ```
 
 With custom backup directory:
 
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/backup-monitoring-data.yaml \
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/backup-monitoring-data.yaml \
   -e "backup_base_dir=/custom/backup/path"
 ```
 
@@ -97,7 +97,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/backup-monitoring-data.yaml \
 Restore monitoring data from backup:
 
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/restore-monitoring-data.yaml \
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/restore-monitoring-data.yaml \
   -e "restore_from=/srv/backups/monitoring/2024-01-15-1430"
 ```
 
@@ -106,7 +106,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/restore-monitoring-data.yaml \
 Set up monitoring agents on remote clusters:
 
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/configure-cross-cluster-monitoring.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/configure-cross-cluster-monitoring.yaml
 ```
 
 ## Roles
@@ -154,7 +154,7 @@ Deploys exporters:
 
 ### Inventory Variables
 
-Key variables in `inventory/hosts.yml`:
+Key variables in /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml`:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -174,7 +174,7 @@ Each role has default variables in `roles/<role>/defaults/main.yml` that can be 
 Run the remediation playbook:
 
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/remediate-monitoring.yaml
+ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/remediate-monitoring.yaml
 ```
 
 ### Permission Errors

@@ -5,7 +5,7 @@
 # Update Grafana dashboards from repository
 #
 # Usage:
-#   ansible-playbook -i inventory/hosts.yml playbooks/update-grafana-dashboards.yaml
+#   ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/update-grafana-dashboards.yaml
 #
 # =============================================================================
 

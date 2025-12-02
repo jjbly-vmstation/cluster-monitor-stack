@@ -5,8 +5,8 @@
 # Backup monitoring stack data (Prometheus, Grafana, Loki)
 #
 # Usage:
-#   ansible-playbook -i inventory/hosts.yml playbooks/backup-monitoring-data.yaml
-#   ansible-playbook -i inventory/hosts.yml playbooks/backup-monitoring-data.yaml -e "backup_dir=/custom/backup/path"
+#   ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/backup-monitoring-data.yaml
+#   ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/backup-monitoring-data.yaml -e "backup_dir=/custom/backup/path"
 #
 # =============================================================================
 
