@@ -1,0 +1,204 @@
+---
+# =============================================================================
+# VMStation Monitoring Data Backup
+# =============================================================================
+# Backup monitoring stack data (Prometheus, Grafana, Loki)
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/backup-monitoring-data.yaml
+#   ansible-playbook -i inventory/hosts.yml playbooks/backup-monitoring-data.yaml -e "backup_dir=/custom/backup/path"
+#
+# =============================================================================
+
+- name: "Backup Monitoring Stack Data"
+  hosts: monitoring_nodes
+  gather_facts: true
+  become: true
+  vars:
+    kubeconfig: "/etc/kubernetes/admin.conf"
+    monitoring_namespace: monitoring
+    backup_base_dir: "/srv/backups/monitoring"
+    backup_timestamp: "{{ ansible_date_time.date }}-{{ ansible_date_time.hour }}{{ ansible_date_time.minute }}"
+    backup_dir: "{{ backup_base_dir }}/{{ backup_timestamp }}"
+    
+    # Source data directories
+    prometheus_data_dir: /srv/monitoring_data/prometheus
+    grafana_data_dir: /srv/monitoring_data/grafana
+    loki_data_dir: /srv/monitoring_data/loki
+  
+  tasks:
+    - name: "Display backup banner"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Monitoring Data Backup
+          Timestamp: {{ backup_timestamp }}
+          Destination: {{ backup_dir }}
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # =============================================================================
+    # Prepare Backup Directory
+    # =============================================================================
+    
+    - name: "Create backup directory"
+      ansible.builtin.file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: "Create component backup directories"
+      ansible.builtin.file:
+        path: "{{ backup_dir }}/{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - prometheus
+        - grafana
+        - loki
+        - manifests
+
+    # =============================================================================
+    # Export Kubernetes Resources
+    # =============================================================================
+    
+    - name: "Export monitoring namespace resources"
+      ansible.builtin.shell: |
+        set -o pipefail
+        kubectl --kubeconfig={{ kubeconfig }} get all,configmap,secret,pv,pvc -n {{ monitoring_namespace }} -o yaml > {{ backup_dir }}/manifests/monitoring-resources.yaml
+      args:
+        executable: /bin/bash
+      register: export_resources
+      changed_when: true
+
+    - name: "Export Prometheus ConfigMap"
+      ansible.builtin.shell: |
+        set -o pipefail
+        kubectl --kubeconfig={{ kubeconfig }} get configmap prometheus-config -n {{ monitoring_namespace }} -o yaml > {{ backup_dir }}/manifests/prometheus-config.yaml
+      args:
+        executable: /bin/bash
+      register: prometheus_config
+      changed_when: true
+      failed_when: false
+
+    - name: "Export Grafana ConfigMaps"
+      ansible.builtin.shell: |
+        set -o pipefail
+        kubectl --kubeconfig={{ kubeconfig }} get configmap -l app=grafana -n {{ monitoring_namespace }} -o yaml > {{ backup_dir }}/manifests/grafana-configmaps.yaml
+      args:
+        executable: /bin/bash
+      register: grafana_config
+      changed_when: true
+      failed_when: false
+
+    # =============================================================================
+    # Backup Data Directories
+    # =============================================================================
+    
+    - name: "Check source directories exist"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: source_dirs
+      loop:
+        - "{{ prometheus_data_dir }}"
+        - "{{ grafana_data_dir }}"
+        - "{{ loki_data_dir }}"
+
+    - name: "Backup Prometheus data"
+      ansible.builtin.shell: |
+        set -o pipefail
+        rsync -av --delete {{ prometheus_data_dir }}/ {{ backup_dir }}/prometheus/
+      args:
+        executable: /bin/bash
+      register: prometheus_backup
+      when: source_dirs.results[0].stat.exists
+      changed_when: true
+      failed_when: false
+
+    - name: "Backup Grafana data"
+      ansible.builtin.shell: |
+        set -o pipefail
+        rsync -av --delete {{ grafana_data_dir }}/ {{ backup_dir }}/grafana/
+      args:
+        executable: /bin/bash
+      register: grafana_backup
+      when: source_dirs.results[1].stat.exists
+      changed_when: true
+      failed_when: false
+
+    - name: "Backup Loki data"
+      ansible.builtin.shell: |
+        set -o pipefail
+        rsync -av --delete {{ loki_data_dir }}/ {{ backup_dir }}/loki/
+      args:
+        executable: /bin/bash
+      register: loki_backup
+      when: source_dirs.results[2].stat.exists
+      changed_when: true
+      failed_when: false
+
+    # =============================================================================
+    # Create Backup Metadata
+    # =============================================================================
+    
+    - name: "Create backup metadata file"
+      ansible.builtin.copy:
+        content: |
+          ---
+          backup_timestamp: "{{ backup_timestamp }}"
+          backup_date: "{{ ansible_date_time.iso8601 }}"
+          hostname: "{{ ansible_hostname }}"
+          backup_dir: "{{ backup_dir }}"
+          components:
+            prometheus: {{ source_dirs.results[0].stat.exists | default(false) }}
+            grafana: {{ source_dirs.results[1].stat.exists | default(false) }}
+            loki: {{ source_dirs.results[2].stat.exists | default(false) }}
+        dest: "{{ backup_dir }}/backup-metadata.yaml"
+        mode: '0644'
+
+    # =============================================================================
+    # Cleanup Old Backups
+    # =============================================================================
+    
+    - name: "Find old backups (older than 7 days)"
+      ansible.builtin.find:
+        paths: "{{ backup_base_dir }}"
+        file_type: directory
+        age: 7d
+      register: old_backups
+
+    - name: "Remove old backups"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_backups.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when: old_backups.files | length > 0
+
+    # =============================================================================
+    # Summary
+    # =============================================================================
+    
+    - name: "Get backup size"
+      ansible.builtin.shell: |
+        du -sh {{ backup_dir }} | cut -f1
+      register: backup_size
+      changed_when: false
+
+    - name: "Display backup summary"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Backup Complete
+          
+          Location: {{ backup_dir }}
+          Size: {{ backup_size.stdout }}
+          
+          Components backed up:
+          - Prometheus: {{ 'Yes' if source_dirs.results[0].stat.exists else 'No' }}
+          - Grafana: {{ 'Yes' if source_dirs.results[1].stat.exists else 'No' }}
+          - Loki: {{ 'Yes' if source_dirs.results[2].stat.exists else 'No' }}
+          - Manifests: Yes
+          
+          Old backups removed: {{ old_backups.files | length }}
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

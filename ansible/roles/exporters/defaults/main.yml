@@ -1,0 +1,21 @@
+---
+# Exporters Role - Default Variables
+
+# Monitoring namespace
+monitoring_namespace: monitoring
+
+# Kubeconfig location
+kubeconfig: /etc/kubernetes/admin.conf
+
+# Manifests directory (relative to playbook)
+manifests_dir: "{{ playbook_dir }}/../../manifests"
+
+# Enable/disable individual exporters
+deploy_node_exporter: true
+deploy_kube_state_metrics: true
+deploy_blackbox_exporter: true
+deploy_ipmi_exporter: true
+
+# Wait settings
+exporter_wait_retries: 10
+exporter_wait_delay: 5

@@ -1,0 +1,163 @@
+---
+# =============================================================================
+# VMStation Monitoring Stack Remediation
+# =============================================================================
+# Automated remediation for common monitoring stack issues
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/remediate-monitoring.yaml
+#
+# =============================================================================
+
+- name: "Remediate Monitoring Stack Issues"
+  hosts: monitoring_nodes
+  gather_facts: true
+  become: true
+  vars:
+    manifests_dir: "{{ playbook_dir }}/../../manifests"
+    kubeconfig: "/etc/kubernetes/admin.conf"
+    monitoring_namespace: monitoring
+    monitoring_user_id: 65534
+    monitoring_group_id: 65534
+  
+  tasks:
+    - name: "Display remediation banner"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Monitoring Stack Remediation
+          - Check for CrashLoopBackOff pods
+          - Fix directory permissions
+          - Restart failed services
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # =============================================================================
+    # Check Pod Status
+    # =============================================================================
+    
+    - name: "Get all monitoring pods"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} get pods -n {{ monitoring_namespace }} -o json
+      register: pods_json
+      changed_when: false
+
+    - name: "Parse pod status"
+      ansible.builtin.set_fact:
+        all_pods: "{{ pods_json.stdout | from_json }}"
+
+    - name: "Identify pods in CrashLoopBackOff or Error state"
+      ansible.builtin.set_fact:
+        problem_pods: >-
+          {{
+            all_pods.items | default([]) | selectattr('status.containerStatuses', 'defined') |
+            selectattr('status.containerStatuses.0.state.waiting', 'defined') |
+            map(attribute='metadata.name') | list
+          }}
+
+    - name: "Display problem pods"
+      ansible.builtin.debug:
+        msg: "Problem pods found: {{ problem_pods | default([]) | join(', ') | default('None') }}"
+
+    # =============================================================================
+    # Fix Directory Permissions
+    # =============================================================================
+    
+    - name: "Check persistent volume directories"
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      register: pv_perms
+      loop:
+        - { path: '/srv/monitoring_data/prometheus', owner: 65534, group: 65534 }
+        - { path: '/srv/monitoring_data/grafana', owner: 472, group: 472 }
+        - { path: '/srv/monitoring_data/loki', owner: 10001, group: 10001 }
+
+    - name: "Fix directory permissions if incorrect"
+      ansible.builtin.file:
+        path: "{{ item.item.path }}"
+        state: directory
+        owner: "{{ item.item.owner }}"
+        group: "{{ item.item.group }}"
+        mode: '0755'
+        recurse: true
+      loop: "{{ pv_perms.results }}"
+      when: item.stat.exists
+      loop_control:
+        label: "{{ item.item.path }}"
+
+    # =============================================================================
+    # Fix Loki Specific Issues
+    # =============================================================================
+    
+    - name: "Check if Loki is in problem state"
+      ansible.builtin.set_fact:
+        loki_has_issues: "{{ problem_pods | select('search', 'loki') | list | length > 0 }}"
+
+    - name: "Fix Loki WAL directories"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+        owner: '10001'
+        group: '10001'
+      loop:
+        - /srv/monitoring_data/loki
+        - /srv/monitoring_data/loki/wal
+        - /srv/monitoring_data/loki/chunks
+        - /srv/monitoring_data/loki/index
+        - /srv/monitoring_data/loki/index_cache
+        - /srv/monitoring_data/loki/compactor
+      when: loki_has_issues | bool
+
+    - name: "Reapply Loki manifests if issues detected"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/loki/
+      register: loki_apply
+      changed_when: "'configured' in loki_apply.stdout or 'created' in loki_apply.stdout"
+      when: loki_has_issues | bool
+
+    # =============================================================================
+    # Restart Failed Pods
+    # =============================================================================
+    
+    - name: "Delete problem pods to trigger restart"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} delete pod {{ item }} -n {{ monitoring_namespace }}
+      loop: "{{ problem_pods | default([]) }}"
+      register: pod_delete
+      changed_when: "'deleted' in pod_delete.stdout"
+      when: problem_pods | length > 0
+
+    - name: "Wait for pods to recover"
+      ansible.builtin.pause:
+        seconds: 30
+      when: problem_pods | length > 0
+
+    # =============================================================================
+    # Verification
+    # =============================================================================
+    
+    - name: "Get updated pod status"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} get pods -n {{ monitoring_namespace }}
+      register: updated_pods
+      changed_when: false
+
+    - name: "Display updated pod status"
+      ansible.builtin.debug:
+        msg: "{{ updated_pods.stdout_lines }}"
+
+    - name: "Display remediation summary"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Remediation Complete
+          
+          Actions taken:
+          - Fixed directory permissions
+          - Restarted problem pods: {{ problem_pods | length }}
+          - Loki remediation: {{ 'Applied' if loki_has_issues | default(false) else 'Not needed' }}
+          
+          Next steps:
+          - Monitor pods: kubectl get pods -n monitoring -w
+          - Check logs: kubectl logs -n monitoring <pod-name>
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

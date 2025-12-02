@@ -120,7 +120,41 @@ This repository only contains the README and improvements/standards documentatio
 |----------|-------------|
 | `deploy-monitoring-stack.yaml` | Deploy complete stack |
 | `fix-loki-config.yaml` | Fix Loki configuration issues |
+| `remediate-monitoring.yaml` | Auto-remediate common issues |
+| `update-grafana-dashboards.yaml` | Update Grafana dashboards |
+| `backup-monitoring-data.yaml` | Backup monitoring data |
+| `restore-monitoring-data.yaml` | Restore from backup |
 | `configure-cross-cluster-monitoring.yaml` | Set up cross-cluster log forwarding |
+
+### Quick Start with Ansible
+
+```bash
+cd ansible
+
+# Install required Ansible collections
+ansible-galaxy collection install -r requirements.yml
+
+# Deploy monitoring stack
+ansible-playbook -i inventory/hosts.yml playbooks/deploy-monitoring-stack.yaml
+
+# Fix Loki configuration issues
+ansible-playbook -i inventory/hosts.yml playbooks/fix-loki-config.yaml
+
+# Remediate monitoring issues
+ansible-playbook -i inventory/hosts.yml playbooks/remediate-monitoring.yaml
+
+# Update Grafana dashboards
+ansible-playbook -i inventory/hosts.yml playbooks/update-grafana-dashboards.yaml
+
+# Backup monitoring data
+ansible-playbook -i inventory/hosts.yml playbooks/backup-monitoring-data.yaml
+
+# Restore monitoring data
+ansible-playbook -i inventory/hosts.yml playbooks/restore-monitoring-data.yaml \
+  -e "restore_from=/srv/backups/monitoring/YYYY-MM-DD-HHMM"
+```
+
+See [ansible/README.md](ansible/README.md) for detailed documentation.
 
 ## Configuration
 

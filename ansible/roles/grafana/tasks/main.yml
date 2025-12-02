@@ -1,0 +1,42 @@
+---
+# Grafana Role - Deploy Grafana with Dashboards
+
+- name: Deploy Grafana ConfigMap
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/configmap.yaml
+  register: grafana_configmap
+  changed_when: "'configured' in grafana_configmap.stdout or 'created' in grafana_configmap.stdout"
+
+- name: Deploy Grafana Dashboards ConfigMap
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/dashboards-configmap.yaml
+  register: grafana_dashboards
+  changed_when: "'configured' in grafana_dashboards.stdout or 'created' in grafana_dashboards.stdout"
+
+- name: Deploy Grafana Deployment
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/deployment.yaml
+  register: grafana_deployment
+  changed_when: "'configured' in grafana_deployment.stdout or 'created' in grafana_deployment.stdout"
+
+- name: Deploy Grafana Service
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/service.yaml
+  register: grafana_service
+  changed_when: "'configured' in grafana_service.stdout or 'created' in grafana_service.stdout"
+
+- name: Wait for Grafana to be ready
+  ansible.builtin.command:
+    cmd: >
+      kubectl --kubeconfig={{ kubeconfig }} wait --for=condition=ready pod
+      -l app=grafana -n {{ monitoring_namespace }} --timeout=60s
+  register: grafana_status
+  retries: "{{ grafana_wait_retries }}"
+  delay: "{{ grafana_wait_delay }}"
+  until: grafana_status.rc == 0
+  changed_when: false
+  failed_when: false
+
+- name: Display Grafana deployment status
+  ansible.builtin.debug:
+    msg: "Grafana deployment: {{ 'Ready' if grafana_status.rc == 0 else 'Pending - check logs' }}"

@@ -1,0 +1,18 @@
+---
+# Promtail Role - Default Variables
+
+# Monitoring namespace
+monitoring_namespace: monitoring
+
+# Kubeconfig location
+kubeconfig: /etc/kubernetes/admin.conf
+
+# Manifests directory (relative to playbook)
+manifests_dir: "{{ playbook_dir }}/../../manifests"
+
+# Promtail data directory
+promtail_data_dir: /srv/monitoring_data/promtail
+
+# Wait settings
+promtail_wait_retries: 20
+promtail_wait_delay: 10

@@ -1,0 +1,25 @@
+---
+# Loki Role - Default Variables
+
+# Monitoring namespace
+monitoring_namespace: monitoring
+
+# Kubeconfig location
+kubeconfig: /etc/kubernetes/admin.conf
+
+# Manifests directory (relative to playbook)
+manifests_dir: "{{ playbook_dir }}/../../manifests"
+
+# Loki data directory
+loki_data_dir: /srv/monitoring_data/loki
+
+# User/Group IDs for loki
+loki_user_id: 10001
+loki_group_id: 10001
+
+# Loki NodePort
+loki_nodeport: 31100
+
+# Wait settings
+loki_wait_retries: 20
+loki_wait_delay: 10

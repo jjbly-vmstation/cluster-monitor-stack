@@ -1,0 +1,36 @@
+---
+# Promtail Role - Deploy Promtail Log Shipper
+
+- name: Deploy Promtail RBAC
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/promtail/rbac.yaml
+  register: promtail_rbac
+  changed_when: "'configured' in promtail_rbac.stdout or 'created' in promtail_rbac.stdout"
+
+- name: Deploy Promtail ConfigMap
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/promtail/configmap.yaml
+  register: promtail_configmap
+  changed_when: "'configured' in promtail_configmap.stdout or 'created' in promtail_configmap.stdout"
+
+- name: Deploy Promtail DaemonSet
+  ansible.builtin.command:
+    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/promtail/daemonset.yaml
+  register: promtail_daemonset
+  changed_when: "'configured' in promtail_daemonset.stdout or 'created' in promtail_daemonset.stdout"
+
+- name: Wait for Promtail to be ready on at least one node
+  ansible.builtin.command:
+    cmd: >
+      kubectl --kubeconfig={{ kubeconfig }} wait --for=condition=ready pod
+      -l app=promtail -n {{ monitoring_namespace }} --timeout=60s
+  register: promtail_status
+  retries: "{{ promtail_wait_retries }}"
+  delay: "{{ promtail_wait_delay }}"
+  until: promtail_status.rc == 0
+  changed_when: false
+  failed_when: false
+
+- name: Display Promtail deployment status
+  ansible.builtin.debug:
+    msg: "Promtail deployment: {{ 'Ready' if promtail_status.rc == 0 else 'Pending - check logs' }}"

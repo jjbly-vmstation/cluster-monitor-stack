@@ -1,0 +1,104 @@
+---
+# =============================================================================
+# VMStation Grafana Dashboard Update
+# =============================================================================
+# Update Grafana dashboards from repository
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/update-grafana-dashboards.yaml
+#
+# =============================================================================
+
+- name: "Update Grafana Dashboards"
+  hosts: monitoring_nodes
+  gather_facts: true
+  become: true
+  vars:
+    manifests_dir: "{{ playbook_dir }}/../../manifests"
+    dashboards_dir: "{{ playbook_dir }}/../../dashboards"
+    kubeconfig: "/etc/kubernetes/admin.conf"
+    monitoring_namespace: monitoring
+  
+  tasks:
+    - name: "Display dashboard update banner"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Grafana Dashboard Update
+          - Update dashboards ConfigMap
+          - Restart Grafana to load changes
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    # =============================================================================
+    # List Available Dashboards
+    # =============================================================================
+    
+    - name: "Find dashboard files"
+      ansible.builtin.find:
+        paths: "{{ dashboards_dir }}"
+        patterns: "*.json"
+      register: dashboard_files
+      delegate_to: localhost
+      become: false
+
+    - name: "Display available dashboards"
+      ansible.builtin.debug:
+        msg: "Found {{ dashboard_files.files | length }} dashboard files: {{ dashboard_files.files | map(attribute='path') | map('basename') | list | join(', ') }}"
+
+    # =============================================================================
+    # Update Dashboards ConfigMap
+    # =============================================================================
+    
+    - name: "Update Grafana dashboards ConfigMap"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/dashboards-configmap.yaml
+      register: dashboards_update
+      changed_when: "'configured' in dashboards_update.stdout or 'created' in dashboards_update.stdout"
+
+    - name: "Display ConfigMap update result"
+      ansible.builtin.debug:
+        msg: "{{ dashboards_update.stdout }}"
+
+    # =============================================================================
+    # Restart Grafana to Load New Dashboards
+    # =============================================================================
+    
+    - name: "Restart Grafana deployment to pick up new dashboards"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} rollout restart deployment/grafana -n {{ monitoring_namespace }}
+      register: grafana_restart
+      changed_when: true
+
+    - name: "Wait for Grafana rollout to complete"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} rollout status deployment/grafana -n {{ monitoring_namespace }} --timeout=120s
+      register: grafana_rollout
+      changed_when: false
+
+    # =============================================================================
+    # Verification
+    # =============================================================================
+    
+    - name: "Check Grafana health"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:30300/api/health"
+        method: GET
+        status_code: 200
+      register: grafana_health
+      retries: 5
+      delay: 10
+      until: grafana_health.status == 200
+      failed_when: false
+
+    - name: "Display update summary"
+      ansible.builtin.debug:
+        msg: |
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Dashboard Update Complete
+          
+          Dashboards updated: {{ dashboard_files.files | length }}
+          Grafana status: {{ 'Healthy' if grafana_health.status == 200 else 'Check logs' }}
+          
+          Access Grafana:
+          http://{{ ansible_default_ipv4.address }}:30300
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
