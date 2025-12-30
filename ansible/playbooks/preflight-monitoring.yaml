@@ -1,0 +1,112 @@
+---
+# Preflight playbook for monitoring deployment
+# - Verifies NFS export on storage node
+# - Ensures mount on masternode and performs a write/read test
+# - Optionally applies PV manifests from a known repo path on masternode
+
+- name: Preflight - verify NFS export on storage node
+  hosts: storagenodet3500
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Check for /srv/monitoring_data export in /etc/exports
+      command: grep -E '^/srv/monitoring_data\b' /etc/exports
+      register: exports_check
+      failed_when: exports_check.rc != 0
+      changed_when: false
+
+    - name: Ensure export directories exist
+      file:
+        path: "/srv/monitoring_data/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0775'
+      loop:
+        - prometheus
+        - loki
+        - grafana
+
+    - name: Check exportfs shows the export
+      command: exportfs -v
+      register: exportfs_out
+      changed_when: false
+
+- name: Preflight - ensure NFS mount on masternode and basic IO
+  hosts: masternode
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Ensure NFS client installed
+      apt:
+        name: nfs-common
+        state: present
+        update_cache: yes
+
+    - name: Ensure local mountpoint exists
+      file:
+        path: /srv/monitoring_data
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Mount NFS export (idempotent)
+      mount:
+        path: /srv/monitoring_data
+        src: '192.168.4.61:/srv/monitoring_data'
+        fstype: nfs
+        opts: rw,hard,intr
+        state: mounted
+
+    - name: Verify write/read on NFS share
+      shell: |
+        set -e
+        echo preflight-$(date +%s) > /srv/monitoring_data/.preflight_test
+        cat /srv/monitoring_data/.preflight_test
+      register: io_test
+      changed_when: false
+
+    - name: Fail if IO test did not return expected content
+      assert:
+        that:
+          - io_test.stdout is match('preflight-')
+
+    - name: Remove preflight marker
+      file:
+        path: /srv/monitoring_data/.preflight_test
+        state: absent
+
+- name: Preflight - apply PV manifests if repo available on masternode
+  hosts: masternode
+  become: true
+  gather_facts: false
+  vars:
+    repo_manifests_path: /opt/vmstation-org/cluster-monitor-stack/manifests
+  tasks:
+    - name: Check if manifests directory exists on masternode
+      stat:
+        path: "{{ repo_manifests_path }}"
+      register: manifests_dir
+
+    - name: Apply PV manifests if present
+      when: manifests_dir.stat.exists
+      shell: |
+        set -e
+        kubectl apply -f {{ repo_manifests_path }}/pv-prometheus.yaml || true
+        kubectl apply -f {{ repo_manifests_path }}/pv-loki.yaml || true
+        kubectl apply -f {{ repo_manifests_path }}/pv-grafana.yaml || true
+      register: kubectl_apply
+
+    - name: Check PVs are created (if applied)
+      when: manifests_dir.stat.exists
+      shell: |
+        set -e
+        kubectl get pv pv-prometheus -o jsonpath='{.status.phase}' || true
+      register: pv_prom_status
+      changed_when: false
+
+    - name: Warn if PV prometheus not Available/Bound
+      when: manifests_dir.stat.exists and pv_prom_status.stdout|default('') not in ['Available','Bound']
+      debug:
+        msg: "pv-prometheus status: {{ pv_prom_status.stdout }} -- check cluster binding"

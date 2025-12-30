@@ -1,4 +1,7 @@
 ---
+# Run preflight checks before deploying monitoring
+- import_playbook: preflight-monitoring.yaml
+# =============================================================================
 # =============================================================================
 # VMStation Monitoring Stack Deployment
 # =============================================================================

@@ -1,0 +1,72 @@
+---
+- name: Configure NFS server and mount exports on clients
+  hosts: storagenodet3500
+  become: true
+  tasks:
+    - name: Ensure NFS server package installed
+      apt:
+        name: nfs-kernel-server
+        state: present
+        update_cache: yes
+
+    - name: Ensure monitoring export directories exist
+      file:
+        path: "/srv/monitoring_data/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0775'
+      loop:
+        - prometheus
+        - loki
+        - grafana
+
+    - name: Ensure /srv/monitoring_data exists
+      file:
+        path: /srv/monitoring_data
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Add export for monitoring_data
+      lineinfile:
+        path: /etc/exports
+        regexp: '^/srv/monitoring_data\s'
+        line: '/srv/monitoring_data 192.168.4.0/24(rw,sync,no_subtree_check,no_root_squash)'
+        create: yes
+
+    - name: Reload export table
+      command: exportfs -ra
+
+    - name: Ensure nfs-server is running
+      service:
+        name: nfs-kernel-server
+        state: started
+        enabled: yes
+
+- name: Mount NFS export on masternode
+  hosts: masternode
+  become: true
+  tasks:
+    - name: Ensure NFS client package installed
+      apt:
+        name: nfs-common
+        state: present
+        update_cache: yes
+
+    - name: Ensure local mountpoint exists
+      file:
+        path: /srv/monitoring_data
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Add fstab entry for monitoring_data and mount
+      mount:
+        path: /srv/monitoring_data
+        src: '192.168.4.61:/srv/monitoring_data'
+        fstype: nfs
+        opts: rw,hard,intr
+        state: mounted
