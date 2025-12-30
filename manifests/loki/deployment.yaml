@@ -182,7 +182,8 @@ spec:
         app: loki
     spec:
       accessModes:
-      - ReadWriteOnce
+      - ReadWriteMany
+      storageClassName: manual
       resources:
         requests:
           storage: 20Gi

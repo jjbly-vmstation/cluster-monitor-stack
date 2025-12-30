@@ -253,7 +253,8 @@ spec:
         app: prometheus
     spec:
       accessModes:
-      - ReadWriteOnce
+      - ReadWriteMany
+      storageClassName: manual
       resources:
         requests:
-          storage: 10Gi
+          storage: 25Gi
