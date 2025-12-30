@@ -123,7 +123,8 @@ metadata:
     app: grafana
 spec:
   accessModes:
-  - ReadWriteOnce
+  - ReadWriteMany
+  storageClassName: manual
   resources:
     requests:
-      storage: 2Gi
+      storage: 5Gi
