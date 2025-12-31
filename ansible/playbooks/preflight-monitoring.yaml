@@ -87,10 +87,10 @@
     - name: Check if manifests directory exists on masternode
       stat:
         path: "{{ repo_manifests_path }}"
-      register: manifests_dir
+      register: manifests_dir_stat
 
     - name: Apply PV manifests if present
-      when: manifests_dir.stat.exists
+      when: manifests_dir_stat.stat.exists
       shell: |
         set -e
         kubectl apply -f {{ repo_manifests_path }}/pv-prometheus.yaml || true
@@ -99,7 +99,7 @@
       register: kubectl_apply
 
     - name: Check PVs are created (if applied)
-      when: manifests_dir.stat.exists
+      when: manifests_dir_stat.stat.exists
       shell: |
         set -e
         kubectl get pv pv-prometheus -o jsonpath='{.status.phase}' || true
@@ -107,6 +107,6 @@
       changed_when: false
 
     - name: Warn if PV prometheus not Available/Bound
-      when: manifests_dir.stat.exists and pv_prom_status.stdout|default('') not in ['Available','Bound']
+      when: manifests_dir_stat.stat.exists and pv_prom_status.stdout|default('') not in ['Available','Bound']
       debug:
         msg: "pv-prometheus status: {{ pv_prom_status.stdout }} -- check cluster binding"
