@@ -102,9 +102,13 @@
       delegate_to: storagenodet3500
       run_once: true
 
-    - name: "Ensure ownership of monitoring_data directories on NFS server"
-      ansible.builtin.command:
-        cmd: chown -R {{ item.owner }}:{{ item.group }} {{ item.path }} && chmod -R {{ item.mode }} {{ item.path }}
+    - name: "Ensure ownership and permissions of monitoring_data directories on NFS server"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+        recurse: yes
       loop:
         - { path: '/srv/monitoring_data/grafana', owner: '472', group: '472', mode: '0755' }
         - { path: '/srv/monitoring_data/loki', owner: '10001', group: '10001', mode: '0755' }
