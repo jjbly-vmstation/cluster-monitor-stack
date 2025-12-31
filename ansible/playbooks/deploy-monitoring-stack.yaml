@@ -86,6 +86,162 @@
         - { path: '/srv/monitoring_data/loki', owner: '10001', group: '10001' }
         - { path: '/srv/monitoring_data/promtail', owner: '0', group: '0' }
 
+    # Ensure NFS export has appropriate options and fix ownership on NFS server
+    - name: "Ensure monitoring export uses no_root_squash and remove anonuid/anongid"
+      ansible.builtin.lineinfile:
+        path: /etc/exports
+        regexp: '^/srv/monitoring_data\s'
+        line: '/srv/monitoring_data 192.168.4.0/24(rw,sync,no_subtree_check,no_root_squash)'
+        create: yes
+      delegate_to: storagenodet3500
+      run_once: true
+
+    - name: "Reload NFS export table on storagenodet3500"
+      ansible.builtin.command:
+        cmd: exportfs -ra
+      delegate_to: storagenodet3500
+      run_once: true
+
+    - name: "Ensure ownership of monitoring_data directories on NFS server"
+      ansible.builtin.command:
+        cmd: chown -R {{ item.owner }}:{{ item.group }} {{ item.path }} && chmod -R {{ item.mode }} {{ item.path }}
+      loop:
+        - { path: '/srv/monitoring_data/grafana', owner: '472', group: '472', mode: '0755' }
+        - { path: '/srv/monitoring_data/loki', owner: '10001', group: '10001', mode: '0755' }
+        - { path: '/srv/monitoring_data/prometheus', owner: '65534', group: '65534', mode: '0755' }
+      delegate_to: storagenodet3500
+      run_once: true
+
+    # Apply static PVCs (bind pv-prometheus/pv-loki)
+    - name: "Apply PVC bindings for prometheus and loki"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/pvc-bindings.yaml
+      register: pvc_bind_apply
+      changed_when: "'created' in pvc_bind_apply.stdout or 'configured' in pvc_bind_apply.stdout"
+
+    - name: "Display PVC apply result"
+      ansible.builtin.debug:
+        msg: "{{ pvc_bind_apply.stdout_lines }}"
+
+    # Create Grafana OAuth secret if vars are provided (safe: only when both vars set)
+
+    - name: "Register Grafana client in Keycloak when admin credentials available"
+      block:
+        - name: "Get Keycloak admin token"
+          ansible.builtin.uri:
+            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/realms/master/protocol/openid-connect/token"
+            method: POST
+            body: "client_id=admin-cli&username={{ keycloak_admin_user }}&password={{ keycloak_admin_password }}&grant_type=password"
+            headers:
+              Content-Type: "application/x-www-form-urlencoded"
+            return_content: yes
+            status_code: 200
+          register: keycloak_token
+
+        - name: "Set Keycloak access token fact"
+          ansible.builtin.set_fact:
+            keycloak_access_token: "{{ keycloak_token.json.access_token }}"
+
+        - name: "Check for existing Grafana client in Keycloak"
+          ansible.builtin.uri:
+            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('master') }}/clients?clientId={{ grafana_oauth_client_name | default('grafana') }}"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ keycloak_access_token }}"
+            return_content: yes
+            status_code: 200
+          register: keycloak_client_check
+
+        - name: "Create Grafana client in Keycloak if missing"
+          ansible.builtin.uri:
+            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('master') }}/clients"
+            method: POST
+            headers:
+              Authorization: "Bearer {{ keycloak_access_token }}"
+              Content-Type: "application/json"
+            body: |
+              {
+                "clientId": "{{ grafana_oauth_client_name | default('grafana') }}",
+                "name": "{{ grafana_oauth_client_name | default('grafana') }}",
+                "enabled": true,
+                "publicClient": false,
+                "serviceAccountsEnabled": true,
+                "redirectUris": ["{{ grafana_oauth_redirect_uri | default('http://' + ansible_default_ipv4.address + ':30300/login/generic_oauth') }}"]
+              }
+            status_code: [201,409]
+          when: keycloak_client_check.json | length == 0
+          register: keycloak_client_create
+
+        - name: "Get Grafana client internal id"
+          ansible.builtin.uri:
+            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('master') }}/clients?clientId={{ grafana_oauth_client_name | default('grafana') }}"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ keycloak_access_token }}"
+            return_content: yes
+            status_code: 200
+          register: keycloak_client_info
+
+        - name: "Set Grafana client id/secret facts from Keycloak"
+          ansible.builtin.set_fact:
+            grafana_oauth_client_internal_id: "{{ keycloak_client_info.json[0].id }}"
+
+        - name: "Generate client secret for Grafana client"
+          ansible.builtin.uri:
+            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('master') }}/clients/{{ grafana_oauth_client_internal_id }}/client-secret"
+            method: POST
+            headers:
+              Authorization: "Bearer {{ keycloak_access_token }}"
+              Content-Type: "application/json"
+            return_content: yes
+            status_code: 200
+          register: keycloak_client_secret
+
+        - name: "Set Grafana OAuth client credentials facts"
+          ansible.builtin.set_fact:
+            grafana_oauth_client_id: "{{ grafana_oauth_client_name | default('grafana') }}"
+            grafana_oauth_client_secret: "{{ keycloak_client_secret.json.value }}"
+      when: grafana_oauth_client_id is not defined and keycloak_admin_user is defined and keycloak_admin_password is defined and (keycloak_url is defined or keycloak_admin_url is defined)
+      run_once: true
+
+    - name: "Create Grafana OAuth secret in cluster using generated or provided credentials"
+      ansible.builtin.command:
+        cmd: >
+          kubectl --kubeconfig={{ kubeconfig }} -n monitoring create secret generic grafana-oauth
+          --from-literal=client-id='{{ grafana_oauth_client_id }}'
+          --from-literal=client-secret='{{ grafana_oauth_client_secret }}'
+          --dry-run=client -o yaml | kubectl --kubeconfig={{ kubeconfig }} apply -f -
+      when: grafana_oauth_client_id is defined and grafana_oauth_client_secret is defined
+      register: grafana_oauth_secret
+      changed_when: true
+
+    - name: "Display grafana oauth secret apply result"
+      ansible.builtin.debug:
+        msg: "{{ grafana_oauth_secret.stdout_lines | default([]) }}"
+
+    - name: "Display grafana oauth secret apply result"
+      ansible.builtin.debug:
+        msg: "{{ grafana_oauth_secret.stdout_lines | default([]) }}"
+
+    - name: "Configure Grafana deployment for Keycloak OAuth when parameters provided"
+      ansible.builtin.command:
+        cmd: >
+          kubectl --kubeconfig={{ kubeconfig }} -n monitoring set env deployment/grafana
+          GF_AUTH_GENERIC_OAUTH_ENABLED=true
+          GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
+          GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true
+          GF_AUTH_GENERIC_OAUTH_SCOPES='openid profile email'
+          GF_AUTH_GENERIC_OAUTH_AUTH_URL='{{ grafana_oauth_auth_url | default(omit) }}'
+          GF_AUTH_GENERIC_OAUTH_TOKEN_URL='{{ grafana_oauth_token_url | default(omit) }}'
+          GF_AUTH_GENERIC_OAUTH_API_URL='{{ grafana_oauth_api_url | default(omit) }}'
+      when: grafana_oauth_client_id is defined and grafana_oauth_client_secret is defined and (grafana_oauth_auth_url is defined and grafana_oauth_token_url is defined and grafana_oauth_api_url is defined)
+      register: grafana_oauth_env
+      changed_when: true
+
+    - name: "Display grafana deployment env patch result"
+      ansible.builtin.debug:
+        msg: "{{ grafana_oauth_env.stdout_lines | default([]) }}"
+
     # =============================================================================
     # Deploy Monitoring Stack using Kustomize
     # =============================================================================
@@ -99,6 +255,36 @@
     - name: "Display deployment result"
       ansible.builtin.debug:
         msg: "{{ deploy_result.stdout_lines }}"
+
+      # Ensure Grafana provisioning configmaps (datasources + dashboards) are applied first
+    - name: "Apply Grafana provisioning ConfigMaps (datasources + dashboards)"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/configmap.yaml -n monitoring
+      register: grafana_cfg_apply
+      changed_when: "'created' in grafana_cfg_apply.stdout or 'configured' in grafana_cfg_apply.stdout"
+
+    - name: "Apply Grafana dashboards ConfigMap"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/dashboards-configmap.yaml -n monitoring
+      register: grafana_dash_apply
+      changed_when: "'created' in grafana_dash_apply.stdout or 'configured' in grafana_dash_apply.stdout"
+
+    - name: "Display grafana config apply results"
+      ansible.builtin.debug:
+        msg: "cfg: {{ grafana_cfg_apply.stdout_lines | default([]) }}; dashboards: {{ grafana_dash_apply.stdout_lines | default([]) }}"
+
+    - name: "Restart grafana to pick up new provisioning config"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} -n monitoring rollout restart deployment/grafana
+      register: grafana_restart
+      changed_when: true
+
+    - name: "Wait for grafana to be ready (120s)"
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} wait --for=condition=available deployment/grafana -n monitoring --timeout=120s
+      register: grafana_ready_post
+      failed_when: false
+      changed_when: false
 
     # =============================================================================
     # Wait for Core Components

@@ -64,6 +64,31 @@ spec:
         # Set home dashboard
         - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
           value: "/var/lib/grafana/dashboards/kubernetes-cluster-dashboard.json"
+        # Optional: Keycloak / Generic OAuth (client id/secret provided via Secret grafana-oauth)
+        - name: GF_AUTH_GENERIC_OAUTH_ENABLED
+          value: "false"
+        - name: GF_AUTH_GENERIC_OAUTH_NAME
+          value: "Keycloak"
+        - name: GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP
+          value: "true"
+        - name: GF_AUTH_GENERIC_OAUTH_SCOPES
+          value: "openid profile email"
+        - name: GF_AUTH_GENERIC_OAUTH_AUTH_URL
+          value: ""
+        - name: GF_AUTH_GENERIC_OAUTH_TOKEN_URL
+          value: ""
+        - name: GF_AUTH_GENERIC_OAUTH_API_URL
+          value: ""
+        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: grafana-oauth
+              key: client-id
+        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: grafana-oauth
+              key: client-secret
         volumeMounts:
         - name: grafana-storage
           mountPath: /var/lib/grafana
