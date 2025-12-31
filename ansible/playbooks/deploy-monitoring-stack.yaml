@@ -162,16 +162,15 @@
             method: POST
             headers:
               Authorization: "Bearer {{ keycloak_access_token }}"
-              Content-Type: "application/json"
-            body: |
-              {
-                "clientId": "{{ grafana_oauth_client_name | default('grafana') }}",
-                "name": "{{ grafana_oauth_client_name | default('grafana') }}",
-                "enabled": true,
-                "publicClient": false,
-                "serviceAccountsEnabled": true,
-                "redirectUris": ["{{ grafana_oauth_redirect_uri | default('http://' + ansible_default_ipv4.address + ':30300/login/generic_oauth') }}"]
-              }
+            body_format: json
+            body:
+              clientId: "{{ grafana_oauth_client_name | default('grafana') }}"
+              name: "{{ grafana_oauth_client_name | default('grafana') }}"
+              enabled: true
+              publicClient: false
+              serviceAccountsEnabled: true
+              redirectUris:
+                - "{{ grafana_oauth_redirect_uri | default('http://' + ansible_default_ipv4.address + ':30300/login/generic_oauth') }}"
             status_code: [201,409]
           when: keycloak_client_check.json | length == 0
           register: keycloak_client_create
