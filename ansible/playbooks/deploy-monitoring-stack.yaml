@@ -208,6 +208,8 @@
       run_once: true
 
     - name: "Create Grafana OAuth secret in cluster using generated or provided credentials"
+      become: true
+      become_user: root
       ansible.builtin.shell: |
         kubectl --kubeconfig={{ kubeconfig }} -n monitoring create secret generic grafana-oauth \
           --from-literal=client-id='{{ grafana_oauth_client_id }}' \
@@ -216,6 +218,7 @@
       when: grafana_oauth_client_id is defined and grafana_oauth_client_secret is defined
       register: grafana_oauth_secret
       changed_when: "grafana_oauth_secret.rc == 0"
+
 
     - name: "Display grafana oauth secret apply result"
       ansible.builtin.debug:
@@ -226,6 +229,8 @@
         msg: "{{ grafana_oauth_secret.stdout_lines | default([]) }}"
 
     - name: "Configure Grafana deployment for Keycloak OAuth when parameters provided"
+      become: true
+      become_user: root
       ansible.builtin.command:
         cmd: >
           kubectl --kubeconfig={{ kubeconfig }} -n monitoring set env deployment/grafana
@@ -292,12 +297,16 @@
 
       # Ensure Grafana provisioning configmaps (datasources + dashboards) are applied first
     - name: "Apply Grafana provisioning ConfigMaps (datasources + dashboards)"
+      become: true
+      become_user: root
       ansible.builtin.command:
         cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/configmap.yaml -n monitoring
       register: grafana_cfg_apply
       changed_when: "'created' in grafana_cfg_apply.stdout or 'configured' in grafana_cfg_apply.stdout"
 
     - name: "Apply Grafana dashboards ConfigMap"
+      become: true
+      become_user: root
       ansible.builtin.command:
         cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/dashboards-configmap.yaml -n monitoring
       register: grafana_dash_apply
@@ -308,6 +317,8 @@
         msg: "cfg: {{ grafana_cfg_apply.stdout_lines | default([]) }}; dashboards: {{ grafana_dash_apply.stdout_lines | default([]) }}"
 
     - name: "Restart grafana to pick up new provisioning config"
+      become: true
+      become_user: root
       ansible.builtin.command:
         cmd: kubectl --kubeconfig={{ kubeconfig }} -n monitoring rollout restart deployment/grafana
       register: grafana_restart
