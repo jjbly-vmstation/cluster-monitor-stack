@@ -207,6 +207,14 @@
       when: grafana_oauth_client_id is not defined and keycloak_admin_user is defined and keycloak_admin_password is defined and (keycloak_url is defined or keycloak_admin_url is defined)
       run_once: true
 
+    - name: "Derive Grafana Keycloak OIDC endpoints from keycloak_url"
+      ansible.builtin.set_fact:
+        grafana_oauth_auth_url: "{{ keycloak_url | default(keycloak_admin_url) ~ '/auth/realms/' ~ (grafana_oauth_realm | default('master')) ~ '/protocol/openid-connect/auth' }}"
+        grafana_oauth_token_url: "{{ keycloak_url | default(keycloak_admin_url) ~ '/auth/realms/' ~ (grafana_oauth_realm | default('master')) ~ '/protocol/openid-connect/token' }}"
+        grafana_oauth_api_url: "{{ keycloak_url | default(keycloak_admin_url) ~ '/auth/realms/' ~ (grafana_oauth_realm | default('master')) ~ '/protocol/openid-connect/userinfo' }}"
+      when: (keycloak_url is defined or keycloak_admin_url is defined)
+      run_once: true
+
     - name: "Create Grafana OAuth secret in cluster using generated or provided credentials"
       become: true
       become_user: root
@@ -330,6 +338,95 @@
       register: grafana_ready_post
       failed_when: false
       changed_when: false
+
+    - name: "Ensure oauth2-proxy for Grafana: create k8s secret with client creds and cookie"
+      become: true
+      become_user: root
+      ansible.builtin.shell: |
+        set -e
+        # generate cookie secret if not provided
+        COOKIE_SECRET=$(openssl rand -base64 32)
+        kubectl --kubeconfig={{ kubeconfig }} -n monitoring create secret generic oauth2-proxy-grafana \
+          --from-literal=client-id='{{ grafana_oauth_client_id | default(omit) }}' \
+          --from-literal=client-secret='{{ grafana_oauth_client_secret | default(omit) }}' \
+          --from-literal=cookie-secret="$COOKIE_SECRET" \
+          --dry-run=client -o yaml | kubectl --kubeconfig={{ kubeconfig }} apply -f -
+      when: grafana_oauth_client_id is defined and grafana_oauth_client_secret is defined
+      register: oauth2_secret_apply
+      changed_when: "oauth2_secret_apply.rc == 0"
+
+    - name: "Deploy oauth2-proxy for Grafana (Deployment + Service)"
+      become: true
+      become_user: root
+      ansible.builtin.shell: |
+        set -e
+        cat <<'EOF' | kubectl --kubeconfig={{ kubeconfig }} -n monitoring apply -f -
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: oauth2-proxy-grafana
+          labels:
+            app: oauth2-proxy-grafana
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: oauth2-proxy-grafana
+          template:
+            metadata:
+              labels:
+                app: oauth2-proxy-grafana
+            spec:
+              containers:
+              - name: oauth2-proxy
+                image: quay.io/oauth2-proxy/oauth2-proxy:v7.3.0
+                args:
+                - --provider=oidc
+                - --oidc-issuer-url={{ keycloak_url | default(keycloak_admin_url) }}/auth/realms/{{ grafana_oauth_realm | default('cluster-services') }}
+                - --client-id=$(CLIENT_ID)
+                - --client-secret=$(CLIENT_SECRET)
+                - --cookie-secret=$(COOKIE_SECRET)
+                - --cookie-secure=false
+                - --cookie-samesite=lax
+                - --http-address=0.0.0.0:4180
+                - --upstream=http://grafana:3000/
+                env:
+                - name: CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: oauth2-proxy-grafana
+                      key: client-id
+                - name: CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: oauth2-proxy-grafana
+                      key: client-secret
+                - name: COOKIE_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: oauth2-proxy-grafana
+                      key: cookie-secret
+                ports:
+                - containerPort: 4180
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: oauth2-proxy-grafana
+          labels:
+            app: oauth2-proxy-grafana
+        spec:
+          type: NodePort
+          ports:
+          - port: 4180
+            targetPort: 4180
+            nodePort: 30301
+            name: http
+          selector:
+            app: oauth2-proxy-grafana
+        EOF
+      register: oauth2_apply
+      changed_when: "oauth2_apply.rc == 0"
 
     # =============================================================================
     # Wait for Core Components
