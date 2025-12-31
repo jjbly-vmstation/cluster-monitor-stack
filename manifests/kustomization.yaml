@@ -5,10 +5,13 @@ kind: Kustomization
 
 namespace: monitoring
 
-# Common labels for all resources
-commonLabels:
-  app.kubernetes.io/part-of: vmstation-monitoring-stack
-  vmstation.io/managed-by: kustomize
+# Use `labels` (replacement for deprecated `commonLabels`) so kustomize
+# applies labels consistently without causing selector mismatches.
+labels:
+- includeSelectors: true 
+  pairs:
+    app.kubernetes.io/part-of: vmstation-monitoring-stack
+    vmstation.io/managed-by: kustomize
 
 # Resources to include
 resources:

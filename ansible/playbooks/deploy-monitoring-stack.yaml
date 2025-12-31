@@ -251,6 +251,8 @@
     - name: "Deploy monitoring stack using Kustomize"
       block:
         - name: "Apply monitoring kustomize"
+          become: true
+          become_user: root
           ansible.builtin.command:
             cmd: kubectl --kubeconfig={{ kubeconfig }} apply -k {{ manifests_dir }}
           register: deploy_result
@@ -273,6 +275,8 @@
           changed_when: sts_cleanup.rc == 0
 
         - name: "Reapply monitoring kustomize after recreating statefulsets"
+          become: true
+          become_user: root
           ansible.builtin.command:
             cmd: kubectl --kubeconfig={{ kubeconfig }} apply -k {{ manifests_dir }}
           register: deploy_result_after
