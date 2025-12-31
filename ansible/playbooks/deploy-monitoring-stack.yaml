@@ -208,15 +208,14 @@
       run_once: true
 
     - name: "Create Grafana OAuth secret in cluster using generated or provided credentials"
-      ansible.builtin.command:
-        cmd: >
-          kubectl --kubeconfig={{ kubeconfig }} -n monitoring create secret generic grafana-oauth
-          --from-literal=client-id='{{ grafana_oauth_client_id }}'
-          --from-literal=client-secret='{{ grafana_oauth_client_secret }}'
+      ansible.builtin.shell: |
+        kubectl --kubeconfig={{ kubeconfig }} -n monitoring create secret generic grafana-oauth \
+          --from-literal=client-id='{{ grafana_oauth_client_id }}' \
+          --from-literal=client-secret='{{ grafana_oauth_client_secret }}' \
           --dry-run=client -o yaml | kubectl --kubeconfig={{ kubeconfig }} apply -f -
       when: grafana_oauth_client_id is defined and grafana_oauth_client_secret is defined
       register: grafana_oauth_secret
-      changed_when: true
+      changed_when: "grafana_oauth_secret.rc == 0"
 
     - name: "Display grafana oauth secret apply result"
       ansible.builtin.debug:
