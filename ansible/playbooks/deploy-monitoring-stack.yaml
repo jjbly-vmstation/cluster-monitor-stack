@@ -428,6 +428,58 @@
       register: oauth2_apply
       changed_when: "oauth2_apply.rc == 0"
 
+    - name: "Disable anonymous Grafana access and enable OAuth env vars"
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        cmd: >
+          kubectl --kubeconfig={{ kubeconfig }} -n monitoring set env deployment/grafana
+          GF_AUTH_ANONYMOUS_ENABLED=false
+          GF_AUTH_GENERIC_OAUTH_ENABLED=true
+          GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
+          GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true
+          GF_AUTH_GENERIC_OAUTH_SCOPES='openid profile email'
+          GF_AUTH_GENERIC_OAUTH_AUTH_URL='{{ grafana_oauth_auth_url | default(keycloak_url ~ "/auth/realms/" ~ (grafana_oauth_realm | default("cluster-services")) ~ "/protocol/openid-connect/auth") }}'
+          GF_AUTH_GENERIC_OAUTH_TOKEN_URL='{{ grafana_oauth_token_url | default(keycloak_url ~ "/auth/realms/" ~ (grafana_oauth_realm | default("cluster-services")) ~ "/protocol/openid-connect/token") }}'
+          GF_AUTH_GENERIC_OAUTH_API_URL='{{ grafana_oauth_api_url | default(keycloak_url ~ "/auth/realms/" ~ (grafana_oauth_realm | default("cluster-services")) ~ "/protocol/openid-connect/userinfo") }}'
+      register: grafana_oauth_env_set
+      changed_when: true
+
+    - name: "Switch Grafana Service to ClusterIP so oauth2-proxy is the external entrypoint"
+      become: true
+      become_user: root
+      ansible.builtin.shell: |
+        set -e
+        cat <<'EOF' | kubectl --kubeconfig={{ kubeconfig }} -n monitoring apply -f -
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: grafana
+          namespace: monitoring
+          labels:
+            app: grafana
+            app.kubernetes.io/name: grafana
+        spec:
+          type: ClusterIP
+          ports:
+          - port: 3000
+            targetPort: 3000
+            name: web
+          selector:
+            app: grafana
+            app.kubernetes.io/name: grafana
+        EOF
+      register: grafana_service_update
+      changed_when: "grafana_service_update.rc == 0"
+
+    - name: "Restart grafana to pick up OAuth changes"
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig }} -n monitoring rollout restart deployment/grafana
+      register: grafana_restart_oauth
+      changed_when: true
+
     # =============================================================================
     # Wait for Core Components
     # =============================================================================
