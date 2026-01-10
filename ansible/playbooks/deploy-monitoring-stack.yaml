@@ -494,7 +494,7 @@
       become_user: root
       ansible.builtin.shell:
         cmd: |
-          CLIENT_SECRET=$(kubectl --kubeconfig={{ kubeconfig }} -n monitoring get secret grafana-oidc-secret -o jsonpath='{.data.client-secret}' | base64 -d)
+          CLIENT_SECRET=$(kubectl --kubeconfig={{ kubeconfig }} -n monitoring get secret grafana-oauth -o jsonpath='{.data.client-secret}' | base64 -d)
           kubectl --kubeconfig={{ kubeconfig }} -n monitoring set env deployment/grafana GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET="$CLIENT_SECRET"
       register: grafana_secret_set
       changed_when: true
