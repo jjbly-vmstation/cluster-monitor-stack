@@ -148,7 +148,7 @@
 
         - name: "Check for existing Grafana client in Keycloak"
           ansible.builtin.uri:
-            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('master') }}/clients?clientId={{ grafana_oauth_client_name | default('grafana') }}"
+            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('cluster-services') }}/clients?clientId={{ grafana_oauth_client_name | default('grafana') }}"
             method: GET
             headers:
               Authorization: "Bearer {{ keycloak_access_token }}"
@@ -158,7 +158,7 @@
 
         - name: "Create Grafana client in Keycloak if missing"
           ansible.builtin.uri:
-            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('master') }}/clients"
+            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('cluster-services') }}/clients"
             method: POST
             headers:
               Authorization: "Bearer {{ keycloak_access_token }}"
@@ -177,7 +177,7 @@
 
         - name: "Get Grafana client internal id"
           ansible.builtin.uri:
-            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('master') }}/clients?clientId={{ grafana_oauth_client_name | default('grafana') }}"
+            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('cluster-services') }}/clients?clientId={{ grafana_oauth_client_name | default('grafana') }}"
             method: GET
             headers:
               Authorization: "Bearer {{ keycloak_access_token }}"
@@ -191,7 +191,7 @@
 
         - name: "Update Grafana client with oauth2-proxy redirect URIs and base URL"
           ansible.builtin.uri:
-            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('master') }}/clients/{{ grafana_oauth_client_internal_id }}"
+            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('cluster-services') }}/clients/{{ grafana_oauth_client_internal_id }}"
             method: PUT
             headers:
               Authorization: "Bearer {{ keycloak_access_token }}"
@@ -212,7 +212,7 @@
 
         - name: "Generate client secret for Grafana client"
           ansible.builtin.uri:
-            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('master') }}/clients/{{ grafana_oauth_client_internal_id }}/client-secret"
+            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('cluster-services') }}/clients/{{ grafana_oauth_client_internal_id }}/client-secret"
             method: POST
             headers:
               Authorization: "Bearer {{ keycloak_access_token }}"
@@ -230,9 +230,9 @@
 
     - name: "Derive Grafana Keycloak OIDC endpoints from keycloak_url"
       ansible.builtin.set_fact:
-        grafana_oauth_auth_url: "{{ keycloak_url | default(keycloak_admin_url) ~ '/auth/realms/' ~ (grafana_oauth_realm | default('master')) ~ '/protocol/openid-connect/auth' }}"
-        grafana_oauth_token_url: "{{ keycloak_url | default(keycloak_admin_url) ~ '/auth/realms/' ~ (grafana_oauth_realm | default('master')) ~ '/protocol/openid-connect/token' }}"
-        grafana_oauth_api_url: "{{ keycloak_url | default(keycloak_admin_url) ~ '/auth/realms/' ~ (grafana_oauth_realm | default('master')) ~ '/protocol/openid-connect/userinfo' }}"
+        grafana_oauth_auth_url: "{{ keycloak_url | default(keycloak_admin_url) ~ '/auth/realms/' ~ (grafana_oauth_realm | default('cluster-services')) ~ '/protocol/openid-connect/auth' }}"
+        grafana_oauth_token_url: "{{ keycloak_url | default(keycloak_admin_url) ~ '/auth/realms/' ~ (grafana_oauth_realm | default('cluster-services')) ~ '/protocol/openid-connect/token' }}"
+        grafana_oauth_api_url: "{{ keycloak_url | default(keycloak_admin_url) ~ '/auth/realms/' ~ (grafana_oauth_realm | default('cluster-services')) ~ '/protocol/openid-connect/userinfo' }}"
       when: (keycloak_url is defined or keycloak_admin_url is defined)
       run_once: true
 
