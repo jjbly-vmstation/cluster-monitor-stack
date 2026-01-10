@@ -338,17 +338,10 @@
       register: grafana_cfg_apply
       changed_when: "'created' in grafana_cfg_apply.stdout or 'configured' in grafana_cfg_apply.stdout"
 
-    - name: "Apply Grafana dashboards ConfigMap"
-      become: true
-      become_user: root
-      ansible.builtin.command:
-        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/dashboards-configmap.yaml -n monitoring
-      register: grafana_dash_apply
-      changed_when: "'created' in grafana_dash_apply.stdout or 'configured' in grafana_dash_apply.stdout"
 
     - name: "Display grafana config apply results"
       ansible.builtin.debug:
-        msg: "cfg: {{ grafana_cfg_apply.stdout_lines | default([]) }}; dashboards: {{ grafana_dash_apply.stdout_lines | default([]) }}"
+        msg: "cfg: {{ grafana_cfg_apply.stdout_lines | default([]) }}"
 
     - name: "Restart grafana to pick up new provisioning config"
       become: true
