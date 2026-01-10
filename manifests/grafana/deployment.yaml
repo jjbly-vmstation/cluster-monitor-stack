@@ -73,18 +73,7 @@ spec:
           value: "true"
         - name: GF_AUTH_GENERIC_OAUTH_SCOPES
           value: "openid profile email"
-        # OAuth URLs set by playbook via kubectl set env
-        # Client credentials pulled from grafana-oauth secret
-        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
-          valueFrom:
-            secretKeyRef:
-              name: grafana-oauth
-              key: client-id
-        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: grafana-oauth
-              key: client-secret
+        # OAuth URLs and client credentials set by playbook via kubectl set env
         volumeMounts:
         - name: grafana-storage
           mountPath: /var/lib/grafana
