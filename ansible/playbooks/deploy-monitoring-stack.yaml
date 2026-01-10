@@ -473,6 +473,7 @@
       ansible.builtin.command:
         cmd: >
           kubectl --kubeconfig={{ kubeconfig }} -n monitoring set env deployment/grafana
+          GF_SERVER_ROOT_URL='http://{{ ansible_default_ipv4.address }}:30300'
           GF_AUTH_ANONYMOUS_ENABLED=false
           GF_AUTH_GENERIC_OAUTH_ENABLED=true
           GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
