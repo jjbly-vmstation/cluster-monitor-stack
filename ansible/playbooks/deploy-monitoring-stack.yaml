@@ -236,26 +236,29 @@
       ansible.builtin.debug:
         msg: "{{ grafana_oauth_secret.stdout_lines | default([]) }}"
 
-    - name: "Configure Grafana deployment for Keycloak OAuth when parameters provided"
-      become: true
-      become_user: root
-      ansible.builtin.command:
-        cmd: >
-          kubectl --kubeconfig={{ kubeconfig }} -n monitoring set env deployment/grafana
-          GF_AUTH_GENERIC_OAUTH_ENABLED=true
-          GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
-          GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true
-          GF_AUTH_GENERIC_OAUTH_SCOPES='openid profile email'
-          GF_AUTH_GENERIC_OAUTH_AUTH_URL='{{ grafana_oauth_auth_url | default(omit) }}'
-          GF_AUTH_GENERIC_OAUTH_TOKEN_URL='{{ grafana_oauth_token_url | default(omit) }}'
-          GF_AUTH_GENERIC_OAUTH_API_URL='{{ grafana_oauth_api_url | default(omit) }}'
-      when: grafana_oauth_client_id is defined and grafana_oauth_client_secret is defined and (grafana_oauth_auth_url is defined and grafana_oauth_token_url is defined and grafana_oauth_api_url is defined)
-      register: grafana_oauth_env
-      changed_when: true
-
-    - name: "Display grafana deployment env patch result"
-      ansible.builtin.debug:
-        msg: "{{ grafana_oauth_env.stdout_lines | default([]) }}"
+    # NOTE: OAuth configuration moved to AFTER deployment (line ~439)
+    # Configuring the deployment here fails because Grafana doesn't exist yet
+    #
+    # - name: "Configure Grafana deployment for Keycloak OAuth when parameters provided"
+    #   become: true
+    #   become_user: root
+    #   ansible.builtin.command:
+    #     cmd: >
+    #       kubectl --kubeconfig={{ kubeconfig }} -n monitoring set env deployment/grafana
+    #       GF_AUTH_GENERIC_OAUTH_ENABLED=true
+    #       GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
+    #       GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true
+    #       GF_AUTH_GENERIC_OAUTH_SCOPES='openid profile email'
+    #       GF_AUTH_GENERIC_OAUTH_AUTH_URL='{{ grafana_oauth_auth_url | default(omit) }}'
+    #       GF_AUTH_GENERIC_OAUTH_TOKEN_URL='{{ grafana_oauth_token_url | default(omit) }}'
+    #       GF_AUTH_GENERIC_OAUTH_API_URL='{{ grafana_oauth_api_url | default(omit) }}'
+    #   when: grafana_oauth_client_id is defined and grafana_oauth_client_secret is defined and (grafana_oauth_auth_url is defined and grafana_oauth_token_url is defined and grafana_oauth_api_url is defined)
+    #   register: grafana_oauth_env
+    #   changed_when: true
+    #
+    # - name: "Display grafana deployment env patch result"
+    #   ansible.builtin.debug:
+    #     msg: "{{ grafana_oauth_env.stdout_lines | default([]) }}"
 
     # =============================================================================
     # Deploy Monitoring Stack using Kustomize
