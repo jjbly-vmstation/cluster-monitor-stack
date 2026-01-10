@@ -189,6 +189,27 @@
           ansible.builtin.set_fact:
             grafana_oauth_client_internal_id: "{{ keycloak_client_info.json[0].id }}"
 
+        - name: "Update Grafana client with oauth2-proxy redirect URIs and base URL"
+          ansible.builtin.uri:
+            url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('master') }}/clients/{{ grafana_oauth_client_internal_id }}"
+            method: PUT
+            headers:
+              Authorization: "Bearer {{ keycloak_access_token }}"
+              Content-Type: "application/json"
+            body_format: json
+            body:
+              clientId: "{{ grafana_oauth_client_name | default('grafana') }}"
+              name: "{{ grafana_oauth_client_name | default('grafana') }}"
+              enabled: true
+              publicClient: false
+              serviceAccountsEnabled: true
+              baseUrl: "http://{{ ansible_default_ipv4.address }}:30301"
+              redirectUris:
+                - "http://{{ ansible_default_ipv4.address }}:30301/oauth2/callback"
+                - "http://{{ ansible_default_ipv4.address }}:30300/login/generic_oauth"
+            status_code: [204]
+          register: keycloak_client_update
+
         - name: "Generate client secret for Grafana client"
           ansible.builtin.uri:
             url: "{{ (keycloak_url | default(keycloak_admin_url | default('http://' + ansible_default_ipv4.address + ':30180'))) }}/auth/admin/realms/{{ grafana_oauth_realm | default('master') }}/clients/{{ grafana_oauth_client_internal_id }}/client-secret"
@@ -347,8 +368,8 @@
       become_user: root
       ansible.builtin.shell: |
         set -e
-        # generate cookie secret if not provided
-        COOKIE_SECRET=$(openssl rand -base64 32)
+        # Generate cookie secret: base64(24 bytes) = exactly 32 characters (32 bytes for AES cipher)
+        COOKIE_SECRET=$(openssl rand -base64 24)
         kubectl --kubeconfig={{ kubeconfig }} -n monitoring create secret generic oauth2-proxy-grafana \
           --from-literal=client-id='{{ grafana_oauth_client_id | default(omit) }}' \
           --from-literal=client-secret='{{ grafana_oauth_client_secret | default(omit) }}' \
@@ -380,6 +401,12 @@
               labels:
                 app: oauth2-proxy-grafana
             spec:
+              nodeSelector:
+                node-role.kubernetes.io/control-plane: ""
+              tolerations:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+                effect: NoSchedule
               containers:
               - name: oauth2-proxy
                 image: quay.io/oauth2-proxy/oauth2-proxy:v7.3.0
@@ -391,6 +418,8 @@
                 - --cookie-secret=$(COOKIE_SECRET)
                 - --cookie-secure=false
                 - --cookie-samesite=lax
+                - --email-domain=*
+                - --redirect-url=http://{{ ansible_default_ipv4.address }}:30301/oauth2/callback
                 - --http-address=0.0.0.0:4180
                 - --upstream=http://grafana:3000/
                 env:
