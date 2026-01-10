@@ -420,6 +420,9 @@
                 - --cookie-samesite=lax
                 - --email-domain=*
                 - --insecure-oidc-allow-unverified-email=true
+                - --pass-user-headers=true
+                - --pass-access-token=true
+                - --set-xauthrequest=true
                 - --redirect-url=http://{{ ansible_default_ipv4.address }}:30301/oauth2/callback
                 - --http-address=0.0.0.0:4180
                 - --upstream=http://grafana:3000/
@@ -461,20 +464,18 @@
       register: oauth2_apply
       changed_when: "oauth2_apply.rc == 0"
 
-    - name: "Disable anonymous Grafana access and enable OAuth env vars"
+    - name: "Configure Grafana to use auth_proxy mode for oauth2-proxy integration"
       become: true
       become_user: root
       ansible.builtin.command:
         cmd: >
           kubectl --kubeconfig={{ kubeconfig }} -n monitoring set env deployment/grafana
           GF_AUTH_ANONYMOUS_ENABLED=false
-          GF_AUTH_GENERIC_OAUTH_ENABLED=true
-          GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
-          GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP=true
-          GF_AUTH_GENERIC_OAUTH_SCOPES='openid profile email'
-          GF_AUTH_GENERIC_OAUTH_AUTH_URL='{{ grafana_oauth_auth_url | default(keycloak_url ~ "/auth/realms/" ~ (grafana_oauth_realm | default("cluster-services")) ~ "/protocol/openid-connect/auth") }}'
-          GF_AUTH_GENERIC_OAUTH_TOKEN_URL='{{ grafana_oauth_token_url | default(keycloak_url ~ "/auth/realms/" ~ (grafana_oauth_realm | default("cluster-services")) ~ "/protocol/openid-connect/token") }}'
-          GF_AUTH_GENERIC_OAUTH_API_URL='{{ grafana_oauth_api_url | default(keycloak_url ~ "/auth/realms/" ~ (grafana_oauth_realm | default("cluster-services")) ~ "/protocol/openid-connect/userinfo") }}'
+          GF_AUTH_PROXY_ENABLED=true
+          GF_AUTH_PROXY_HEADER_NAME=X-Forwarded-User
+          GF_AUTH_PROXY_HEADER_PROPERTY=username
+          GF_AUTH_PROXY_AUTO_SIGN_UP=true
+          GF_AUTH_PROXY_HEADERS='Email:X-Forwarded-Email'
       register: grafana_oauth_env_set
       changed_when: true
 
