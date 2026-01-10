@@ -73,12 +73,8 @@ spec:
           value: "true"
         - name: GF_AUTH_GENERIC_OAUTH_SCOPES
           value: "openid profile email"
-        - name: GF_AUTH_GENERIC_OAUTH_AUTH_URL
-          value: ""
-        - name: GF_AUTH_GENERIC_OAUTH_TOKEN_URL
-          value: ""
-        - name: GF_AUTH_GENERIC_OAUTH_API_URL
-          value: ""
+        # OAuth URLs set by playbook via kubectl set env
+        # Client credentials pulled from grafana-oauth secret
         - name: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
           valueFrom:
             secretKeyRef:
