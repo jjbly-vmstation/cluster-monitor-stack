@@ -49,9 +49,9 @@
     # Update Dashboards ConfigMap
     # =============================================================================
     
-    - name: "Update Grafana dashboards ConfigMap"
+    - name: "Update Grafana dashboards ConfigMap (kustomize generator)"
       ansible.builtin.command:
-        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/dashboards-configmap.yaml
+        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -k {{ manifests_dir }}
       register: dashboards_update
       changed_when: "'configured' in dashboards_update.stdout or 'created' in dashboards_update.stdout"
 

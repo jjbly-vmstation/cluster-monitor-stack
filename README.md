@@ -169,8 +169,7 @@ Edit the respective deployment files in `manifests/*/deployment.yaml`.
 ### Adding Dashboards
 
 1. Add JSON file to `dashboards/`
-2. Add to `manifests/grafana/dashboards-configmap.yaml`
-3. Redeploy: `kubectl apply -k manifests/`
+2. Redeploy: `kubectl apply -k manifests/` (dashboards are generated into a ConfigMap)
 
 ## Troubleshooting
 

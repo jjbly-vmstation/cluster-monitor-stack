@@ -7,9 +7,18 @@
   register: grafana_configmap
   changed_when: "'configured' in grafana_configmap.stdout or 'created' in grafana_configmap.stdout"
 
-- name: Deploy Grafana Dashboards ConfigMap
-  ansible.builtin.command:
-    cmd: kubectl --kubeconfig={{ kubeconfig }} apply -f {{ manifests_dir }}/grafana/dashboards-configmap.yaml
+- name: Deploy Grafana Dashboards ConfigMap (from repo dashboards/*.json)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if [ ! -d "{{ grafana_dashboards_dir }}" ]; then
+      echo "ERROR: dashboards directory not found: {{ grafana_dashboards_dir }}" >&2
+      exit 1
+    fi
+    kubectl --kubeconfig={{ kubeconfig }} -n {{ monitoring_namespace }} create configmap grafana-dashboards \
+      --from-file="{{ grafana_dashboards_dir }}/" \
+      --dry-run=client -o yaml | kubectl --kubeconfig={{ kubeconfig }} apply -f -
+  args:
+    executable: /bin/bash
   register: grafana_dashboards
   changed_when: "'configured' in grafana_dashboards.stdout or 'created' in grafana_dashboards.stdout"
 
