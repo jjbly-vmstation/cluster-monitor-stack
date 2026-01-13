@@ -18,6 +18,7 @@
     kustomize_root: "{{ playbook_dir }}/../.."
     dashboards_dir: "{{ playbook_dir }}/../../dashboards"
     grafana_dashboards_dest_dir: "/srv/monitoring_data/grafana/dashboards"
+    grafana_dashboards_render_script: "{{ playbook_dir }}/../../scripts/render_grafana_dashboards.py"
     kubeconfig: "/etc/kubernetes/admin.conf"
     monitoring_namespace: monitoring
   
@@ -61,32 +62,36 @@
       delegate_to: masternode
       run_once: true
 
-    - name: "Sync dashboard JSON files into Grafana dashboards directory"
+    - name: "Render + sync dashboard JSON files into Grafana dashboards directory"
       ansible.builtin.shell: |
         set -euo pipefail
         SRC="{{ dashboards_dir }}"
         DEST="{{ grafana_dashboards_dest_dir }}"
+        RENDER="{{ grafana_dashboards_render_script }}"
 
         if [ ! -d "$SRC" ]; then
           echo "ERROR: dashboards directory not found: $SRC" >&2
           exit 1
         fi
 
-        mkdir -p "$DEST"
-
-        if command -v rsync >/dev/null 2>&1; then
-          rsync -a --delete --include='*.json' --exclude='*' "$SRC/" "$DEST/"
-        else
-          shopt -s nullglob
-          rm -f "$DEST"/*.json
-          for f in "$SRC"/*.json; do
-            cp -f "$f" "$DEST/"
-          done
+        if [ ! -f "$RENDER" ]; then
+          echo "ERROR: render script not found: $RENDER" >&2
+          exit 1
         fi
+
+        mkdir -p "$DEST"
+        python3 "$RENDER" --src "$SRC" --dest "$DEST" --clean
 
         chown -R 472:472 "$DEST"
         find "$DEST" -type f -name '*.json' -exec chmod 0644 {} \;
         find "$DEST" -type d -exec chmod 0755 {} \;
+
+        COUNT=$(find "$DEST" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')
+        echo "Dashboards copied: $COUNT"
+        if [ "$COUNT" -lt 1 ]; then
+          echo "ERROR: No dashboard JSON files found in $DEST after sync" >&2
+          exit 1
+        fi
       args:
         executable: /bin/bash
       register: dashboards_sync
@@ -115,6 +120,40 @@
         cmd: kubectl --kubeconfig={{ kubeconfig }} rollout status deployment/grafana -n {{ monitoring_namespace }} --timeout=120s
       register: grafana_rollout
       changed_when: false
+
+    - name: "Verify dashboards directory and provisioning mounts in Grafana pod"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl --kubeconfig={{ kubeconfig }} -n {{ monitoring_namespace }} exec deploy/grafana -- sh -c "
+          echo '== datasources =='; ls -la /etc/grafana/provisioning/datasources; echo;
+          echo '== dashboard providers =='; ls -la /etc/grafana/provisioning/dashboards; echo;
+          echo '== dashboards json count =='; find /var/lib/grafana/dashboards -maxdepth 1 -type f -name '*.json' | wc -l
+        "
+      args:
+        executable: /bin/bash
+      register: grafana_verify
+      retries: 5
+      delay: 5
+      until: grafana_verify.rc == 0
+      changed_when: false
+      delegate_to: masternode
+      run_once: true
+
+    - name: "Show Grafana logs for provisioning errors (last 200 lines)"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl --kubeconfig={{ kubeconfig }} -n {{ monitoring_namespace }} logs -l app=grafana --tail=200 | \
+          grep -i -E 'provision|datasour|dashboard|error|warn' || true
+      args:
+        executable: /bin/bash
+      register: grafana_logs_provisioning
+      changed_when: false
+      delegate_to: masternode
+      run_once: true
+
+    - name: "Display Grafana provisioning log highlights"
+      ansible.builtin.debug:
+        msg: "{{ grafana_logs_provisioning.stdout_lines | default(['(no provisioning-related log lines found)']) }}"
 
     # =============================================================================
     # Verification

@@ -21,6 +21,7 @@
     kustomize_root: "{{ playbook_dir }}/../.."
     grafana_dashboards_src_dir: "{{ playbook_dir }}/../../dashboards"
     grafana_dashboards_dest_dir: "/srv/monitoring_data/grafana/dashboards"
+    grafana_dashboards_render_script: "{{ playbook_dir }}/../../scripts/render_grafana_dashboards.py"
     kubeconfig: "/etc/kubernetes/admin.conf"
   
   tasks:
@@ -99,32 +100,36 @@
       delegate_to: masternode
       run_once: true
 
-    - name: "Sync Grafana dashboards onto NFS (avoids ConfigMap size limits)"
+    - name: "Render + sync Grafana dashboards onto NFS (avoids ConfigMap size limits)"
       ansible.builtin.shell: |
         set -euo pipefail
         SRC="{{ grafana_dashboards_src_dir }}"
         DEST="{{ grafana_dashboards_dest_dir }}"
+        RENDER="{{ grafana_dashboards_render_script }}"
 
         if [ ! -d "$SRC" ]; then
           echo "ERROR: dashboards source directory not found: $SRC" >&2
           exit 1
         fi
 
-        mkdir -p "$DEST"
-
-        if command -v rsync >/dev/null 2>&1; then
-          rsync -a --delete --include='*.json' --exclude='*' "$SRC/" "$DEST/"
-        else
-          shopt -s nullglob
-          rm -f "$DEST"/*.json
-          for f in "$SRC"/*.json; do
-            cp -f "$f" "$DEST/"
-          done
+        if [ ! -f "$RENDER" ]; then
+          echo "ERROR: render script not found: $RENDER" >&2
+          exit 1
         fi
+
+        mkdir -p "$DEST"
+        python3 "$RENDER" --src "$SRC" --dest "$DEST" --clean
 
         chown -R 472:472 "$DEST"
         find "$DEST" -type f -name '*.json' -exec chmod 0644 {} \;
         find "$DEST" -type d -exec chmod 0755 {} \;
+
+        COUNT=$(find "$DEST" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')
+        echo "Dashboards copied: $COUNT"
+        if [ "$COUNT" -lt 1 ]; then
+          echo "ERROR: No dashboard JSON files found in $DEST after sync" >&2
+          exit 1
+        fi
       args:
         executable: /bin/bash
       register: grafana_dashboards_sync
@@ -134,7 +139,7 @@
 
     - name: "Display Grafana dashboards sync result"
       ansible.builtin.debug:
-        msg: "Dashboards synced to {{ grafana_dashboards_dest_dir }}"
+        msg: "{{ grafana_dashboards_sync.stdout_lines | default(['Dashboards synced']) }}"
       delegate_to: masternode
       run_once: true
 
@@ -416,6 +421,16 @@
       register: grafana_cfg_apply
       changed_when: "'created' in grafana_cfg_apply.stdout or 'configured' in grafana_cfg_apply.stdout"
 
+    - name: "Verify Grafana provisioning ConfigMaps exist"
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        cmd: >-
+          kubectl --kubeconfig={{ kubeconfig }} -n monitoring get configmap
+          grafana-datasources grafana-dashboard-providers
+      register: grafana_cfg_verify
+      changed_when: false
+
 
     - name: "Display grafana config apply results"
       ansible.builtin.debug:
@@ -435,6 +450,41 @@
       register: grafana_ready_post
       failed_when: false
       changed_when: false
+
+    - name: "Verify Grafana provisioning files and dashboards are visible in the pod"
+      become: true
+      become_user: root
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl --kubeconfig={{ kubeconfig }} -n monitoring exec deploy/grafana -- sh -c "
+          echo '== datasources =='; ls -la /etc/grafana/provisioning/datasources; echo;
+          echo '== dashboard providers =='; ls -la /etc/grafana/provisioning/dashboards; echo;
+          echo '== dashboards dir =='; ls -la /var/lib/grafana/dashboards | head -n 200; echo;
+          echo 'dashboard json count:'; find /var/lib/grafana/dashboards -maxdepth 1 -type f -name '*.json' | wc -l
+        "
+      args:
+        executable: /bin/bash
+      register: grafana_provisioning_check
+      retries: 5
+      delay: 5
+      until: grafana_provisioning_check.rc == 0
+      changed_when: false
+
+    - name: "Show Grafana logs for provisioning errors (last 200 lines)"
+      become: true
+      become_user: root
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl --kubeconfig={{ kubeconfig }} -n monitoring logs -l app=grafana --tail=200 | \
+          grep -i -E 'provision|datasour|dashboard|error|warn' || true
+      args:
+        executable: /bin/bash
+      register: grafana_logs_provisioning
+      changed_when: false
+
+    - name: "Display Grafana provisioning log highlights"
+      ansible.builtin.debug:
+        msg: "{{ grafana_logs_provisioning.stdout_lines | default(['(no provisioning-related log lines found)']) }}"
 
     # DISABLED: oauth2-proxy adds unnecessary complexity - Grafana has native OAuth support
     # - name: "Ensure oauth2-proxy for Grafana: create k8s secret with client creds and cookie"
