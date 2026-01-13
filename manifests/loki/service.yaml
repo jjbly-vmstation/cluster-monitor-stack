@@ -87,7 +87,7 @@ spec:
   - from:
     - namespaceSelector:
         matchLabels:
-          name: infrastructure
+          kubernetes.io/metadata.name: infrastructure
     - podSelector:
         matchLabels:
           app: syslog-server
@@ -112,7 +112,7 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          name: kube-system
+          kubernetes.io/metadata.name: kube-system
     - podSelector:
         matchLabels:
           k8s-app: kube-dns

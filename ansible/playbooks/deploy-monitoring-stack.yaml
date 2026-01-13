@@ -828,6 +828,70 @@
       ansible.builtin.debug:
         msg: "Prometheus health: {{ 'OK' if prometheus_health.status == 200 else 'FAILED' }}"
 
+    - name: "Validate Prometheus scrape targets (dashboards depend on this)"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required for target validation" >&2; exit 1; }
+
+        python3 - <<'PY'
+        import json
+        import sys
+        import urllib.parse
+        import urllib.request
+
+        BASE = "http://127.0.0.1:30090"
+
+        def prom_query(expr: str) -> float:
+            url = BASE + "/api/v1/query?" + urllib.parse.urlencode({"query": expr})
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                payload = json.load(resp)
+            if payload.get("status") != "success":
+                raise RuntimeError(f"Prometheus query failed: {payload}")
+            result = payload.get("data", {}).get("result", [])
+            if not result:
+                return 0.0
+            total = 0.0
+            for series in result:
+                total += float(series["value"][1])
+            return total
+
+        checks = [
+            ("kubernetes-nodes", 'count(up{job="kubernetes-nodes"})', 'sum(up{job="kubernetes-nodes"} == 0)'),
+            ("kubernetes-cadvisor", 'count(up{job="kubernetes-cadvisor"})', 'sum(up{job="kubernetes-cadvisor"} == 0)'),
+            ("kube-state-metrics", 'count(up{job="kube-state-metrics"})', 'sum(up{job="kube-state-metrics"} == 0)'),
+            ("node-exporter", 'count(up{job="node-exporter"})', 'sum(up{job="node-exporter"} == 0)'),
+        ]
+
+        failures = []
+        for job, q_total, q_down in checks:
+            total = prom_query(q_total)
+            down = prom_query(q_down)
+            print(f"{job}: total={int(total)} down={int(down)}")
+            if total < 1:
+                failures.append(f"{job}: no targets discovered (total=0)")
+            elif down > 0:
+                failures.append(f"{job}: {int(down)}/{int(total)} targets down")
+
+        if failures:
+            print("\nERROR: Prometheus scrape targets are not healthy; Grafana dashboards will be empty.", file=sys.stderr)
+            for f in failures:
+                print(f"- {f}", file=sys.stderr)
+            print("\nCommon causes:", file=sys.stderr)
+            print("- NetworkPolicy egress blocking API server (kubelet/cAdvisor via API proxy)", file=sys.stderr)
+            print("- Node exporter not listening on 9100 on one or more nodes (hostPort conflict or firewall)", file=sys.stderr)
+            print("\nDebug commands:", file=sys.stderr)
+            print("- kubectl -n monitoring get netpol", file=sys.stderr)
+            print("- kubectl -n monitoring get pods -o wide", file=sys.stderr)
+            print("- kubectl -n monitoring exec -it prometheus-0 -- wget -qO- http://localhost:9090/api/v1/targets | head", file=sys.stderr)
+            sys.exit(2)
+        PY
+      args:
+        executable: /bin/bash
+      register: prometheus_targets_validate
+      changed_when: false
+      delegate_to: masternode
+      run_once: true
+
     - name: "Check Grafana health"
       ansible.builtin.uri:
         url: "http://127.0.0.1:30300/api/health"

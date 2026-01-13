@@ -115,20 +115,25 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
-  # Allow scraping Kubernetes API server
+  # Allow reaching the Kubernetes API server.
+  # Prometheus scrapes kubelet/cAdvisor via the API proxy through kubernetes.default.svc.
+  # Many CNIs enforce NetworkPolicy after Service DNAT, so the destination becomes the apiserver endpoint (node IP:6443).
   - to:
-    - namespaceSelector:
-        matchLabels:
-          name: kube-system
+    - ipBlock:
+        cidr: 192.168.4.0/24
     ports:
     - protocol: TCP
       port: 443
-  # Allow DNS resolution
+    - protocol: TCP
+      port: 6443
+
+  # Allow DNS resolution via CoreDNS (kube-system).
+  # Kubernetes sets the namespace label kubernetes.io/metadata.name automatically; do not rely on a custom 'name' label.
   - to:
     - namespaceSelector:
         matchLabels:
-          name: kube-system
-    - podSelector:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
         matchLabels:
           k8s-app: kube-dns
     ports:
