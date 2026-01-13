@@ -16,6 +16,9 @@ grafana_dashboards_dir: "{{ role_path }}/../../../dashboards"
 # Grafana data directory
 grafana_data_dir: /srv/monitoring_data/grafana
 
+# NFS server that exports /srv/monitoring_data
+grafana_nfs_server: storagenodet3500
+
 # User/Group IDs for grafana
 grafana_user_id: 472
 grafana_group_id: 472

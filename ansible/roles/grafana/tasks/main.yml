@@ -7,34 +7,77 @@
   register: grafana_configmap
   changed_when: "'configured' in grafana_configmap.stdout or 'created' in grafana_configmap.stdout"
 
-- name: Sync Grafana dashboards onto NFS-backed Grafana PVC (avoids ConfigMap size limits)
+- name: Render Grafana dashboards locally (controller)
   ansible.builtin.shell: |
     set -euo pipefail
     SRC="{{ grafana_dashboards_dir }}"
-    DEST="{{ grafana_data_dir }}/dashboards"
     RENDER="{{ role_path }}/../../../scripts/render_grafana_dashboards.py"
+    TMP="/tmp/vmstation-grafana-dashboards-rendered"
 
     if [ ! -d "$SRC" ]; then
       echo "ERROR: dashboards directory not found: $SRC" >&2
       exit 1
     fi
 
-    mkdir -p "$DEST"
-
     if [ ! -f "$RENDER" ]; then
       echo "ERROR: render script not found: $RENDER" >&2
       exit 1
     fi
 
-    python3 "$RENDER" --src "$SRC" --dest "$DEST" --clean
+    rm -rf "$TMP"
+    mkdir -p "$TMP"
+    python3 "$RENDER" --src "$SRC" --dest "$TMP" --clean
 
-    chown -R 472:472 "$DEST"
-    find "$DEST" -type f -name '*.json' -exec chmod 0644 {} \;
-    find "$DEST" -type d -exec chmod 0755 {} \;
+    COUNT=$(find "$TMP" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')
+    echo "Rendered dashboards: $COUNT"
+    test "$COUNT" -ge 1
   args:
     executable: /bin/bash
-  register: grafana_dashboards_sync
+  register: grafana_dashboards_render
   changed_when: true
+  delegate_to: masternode
+  run_once: true
+
+- name: Discover rendered dashboard JSON files
+  ansible.builtin.find:
+    paths: /tmp/vmstation-grafana-dashboards-rendered
+    patterns: "*.json"
+    file_type: file
+  register: grafana_rendered_dashboards
+  delegate_to: masternode
+  run_once: true
+
+- name: Ensure Grafana dashboards directory exists on NFS server
+  ansible.builtin.file:
+    path: "{{ grafana_data_dir }}/dashboards"
+    state: directory
+    mode: '0755'
+    owner: '472'
+    group: '472'
+  delegate_to: "{{ grafana_nfs_server }}"
+  run_once: true
+
+- name: Clear existing dashboard JSONs on NFS server
+  ansible.builtin.shell: |
+    set -euo pipefail
+    DEST="{{ grafana_data_dir }}/dashboards"
+    find "$DEST" -maxdepth 1 -type f -name '*.json' -delete
+  args:
+    executable: /bin/bash
+  delegate_to: "{{ grafana_nfs_server }}"
+  run_once: true
+  changed_when: true
+
+- name: Copy rendered dashboards to NFS server export
+  ansible.builtin.copy:
+    src: "{{ item.path }}"
+    dest: "{{ grafana_data_dir }}/dashboards/{{ item.path | basename }}"
+    owner: '472'
+    group: '472'
+    mode: '0644'
+  loop: "{{ grafana_rendered_dashboards.files }}"
+  delegate_to: "{{ grafana_nfs_server }}"
+  run_once: true
 
 - name: Deploy Grafana Deployment
   ansible.builtin.command:

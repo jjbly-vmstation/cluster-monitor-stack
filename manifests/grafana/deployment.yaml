@@ -129,6 +129,7 @@ spec:
   accessModes:
   - ReadWriteMany
   storageClassName: manual
+  volumeName: pv-grafana
   resources:
     requests:
       storage: 5Gi

@@ -97,15 +97,15 @@
         mode: '0755'
         owner: '472'
         group: '472'
-      delegate_to: masternode
+      delegate_to: storagenodet3500
       run_once: true
 
-    - name: "Render + sync Grafana dashboards onto NFS (avoids ConfigMap size limits)"
+    - name: "Render dashboards locally (controller)"
       ansible.builtin.shell: |
         set -euo pipefail
         SRC="{{ grafana_dashboards_src_dir }}"
-        DEST="{{ grafana_dashboards_dest_dir }}"
         RENDER="{{ grafana_dashboards_render_script }}"
+        TMP="/tmp/vmstation-grafana-dashboards-rendered"
 
         if [ ! -d "$SRC" ]; then
           echo "ERROR: dashboards source directory not found: $SRC" >&2
@@ -117,30 +117,81 @@
           exit 1
         fi
 
-        mkdir -p "$DEST"
-        python3 "$RENDER" --src "$SRC" --dest "$DEST" --clean
+        rm -rf "$TMP"
+        mkdir -p "$TMP"
+        python3 "$RENDER" --src "$SRC" --dest "$TMP" --clean
 
-        chown -R 472:472 "$DEST"
-        find "$DEST" -type f -name '*.json' -exec chmod 0644 {} \;
-        find "$DEST" -type d -exec chmod 0755 {} \;
-
-        COUNT=$(find "$DEST" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')
-        echo "Dashboards copied: $COUNT"
+        COUNT=$(find "$TMP" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')
+        echo "Rendered dashboards: $COUNT"
         if [ "$COUNT" -lt 1 ]; then
-          echo "ERROR: No dashboard JSON files found in $DEST after sync" >&2
+          echo "ERROR: No dashboard JSON files were rendered into $TMP" >&2
           exit 1
         fi
       args:
         executable: /bin/bash
-      register: grafana_dashboards_sync
+      register: grafana_dashboards_render
       changed_when: true
       delegate_to: masternode
       run_once: true
 
+    - name: "Discover rendered dashboard JSON files"
+      ansible.builtin.find:
+        paths: /tmp/vmstation-grafana-dashboards-rendered
+        patterns: "*.json"
+        file_type: file
+      register: rendered_dashboards
+      delegate_to: masternode
+      run_once: true
+
+    - name: "Fail if home dashboard is not rendered"
+      ansible.builtin.assert:
+        that:
+          - rendered_dashboards.files | map(attribute='path') | map('basename') | list is contains('kubernetes-cluster-dashboard.json')
+        fail_msg: "Home dashboard kubernetes-cluster-dashboard.json was not rendered; Grafana home dashboard will 500."
+      delegate_to: masternode
+      run_once: true
+
+    - name: "Clear existing dashboard JSONs on NFS server"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        DEST="{{ grafana_dashboards_dest_dir }}"
+        mkdir -p "$DEST"
+        find "$DEST" -maxdepth 1 -type f -name '*.json' -delete
+      args:
+        executable: /bin/bash
+      delegate_to: storagenodet3500
+      run_once: true
+      changed_when: true
+
+    - name: "Copy rendered dashboards to NFS server export"
+      ansible.builtin.copy:
+        src: "{{ item.path }}"
+        dest: "{{ grafana_dashboards_dest_dir }}/{{ item.path | basename }}"
+        owner: '472'
+        group: '472'
+        mode: '0644'
+      loop: "{{ rendered_dashboards.files }}"
+      delegate_to: storagenodet3500
+      run_once: true
+
+    - name: "Verify dashboards now exist on NFS server"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        DEST="{{ grafana_dashboards_dest_dir }}"
+        COUNT=$(find "$DEST" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')
+        echo "Dashboards on NFS export: $COUNT"
+        test "$COUNT" -ge 1
+        test -f "$DEST/kubernetes-cluster-dashboard.json"
+      args:
+        executable: /bin/bash
+      register: dashboards_on_nfs
+      changed_when: false
+      delegate_to: storagenodet3500
+      run_once: true
+
     - name: "Display Grafana dashboards sync result"
       ansible.builtin.debug:
-        msg: "{{ grafana_dashboards_sync.stdout_lines | default(['Dashboards synced']) }}"
-      delegate_to: masternode
+        msg: "{{ dashboards_on_nfs.stdout_lines | default(['Dashboards synced to NFS export']) }}"
       run_once: true
 
     # Ensure NFS export has appropriate options and fix ownership on NFS server
@@ -412,6 +463,27 @@
       ansible.builtin.debug:
         msg: "{{ deploy_result.stdout_lines }}"
 
+    - name: "Verify Grafana PVC is Bound to pv-grafana"
+      become: true
+      become_user: root
+      ansible.builtin.shell: |
+        set -euo pipefail
+        VOL=$(kubectl --kubeconfig={{ kubeconfig }} -n monitoring get pvc grafana-pvc -o jsonpath='{.spec.volumeName}')
+        PHASE=$(kubectl --kubeconfig={{ kubeconfig }} -n monitoring get pvc grafana-pvc -o jsonpath='{.status.phase}')
+        echo "grafana-pvc volumeName=$VOL phase=$PHASE"
+        if [ "$VOL" != "pv-grafana" ] || [ "$PHASE" != "Bound" ]; then
+          echo "ERROR: grafana-pvc is not bound to pv-grafana (this causes missing dashboards/home dashboard)." >&2
+          echo "pvc:" >&2
+          kubectl --kubeconfig={{ kubeconfig }} -n monitoring get pvc grafana-pvc -o wide >&2 || true
+          echo "pv-grafana:" >&2
+          kubectl --kubeconfig={{ kubeconfig }} get pv pv-grafana -o wide >&2 || true
+          exit 1
+        fi
+      args:
+        executable: /bin/bash
+      register: grafana_pvc_binding
+      changed_when: false
+
       # Ensure Grafana provisioning configmaps (datasources + dashboard providers) are applied
     - name: "Apply Grafana provisioning ConfigMaps (datasources + dashboard providers)"
       become: true
@@ -460,7 +532,17 @@
           echo '== datasources =='; ls -la /etc/grafana/provisioning/datasources; echo;
           echo '== dashboard providers =='; ls -la /etc/grafana/provisioning/dashboards; echo;
           echo '== dashboards dir =='; ls -la /var/lib/grafana/dashboards | head -n 200; echo;
-          echo 'dashboard json count:'; find /var/lib/grafana/dashboards -maxdepth 1 -type f -name '*.json' | wc -l
+          COUNT=$(find /var/lib/grafana/dashboards -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ');
+          echo "dashboard json count: $COUNT";
+          if [ "$COUNT" -lt 1 ]; then
+            echo '== mount/df hints =='; (mount | grep -E '/var/lib/grafana' || true); (df -h /var/lib/grafana || true); echo;
+            echo "ERROR: Grafana pod cannot see any dashboard JSON files under /var/lib/grafana/dashboards" >&2;
+            exit 2;
+          fi
+          if [ ! -f /var/lib/grafana/dashboards/kubernetes-cluster-dashboard.json ]; then
+            echo "ERROR: Home dashboard file missing: /var/lib/grafana/dashboards/kubernetes-cluster-dashboard.json" >&2;
+            exit 3;
+          fi
         "
       args:
         executable: /bin/bash
