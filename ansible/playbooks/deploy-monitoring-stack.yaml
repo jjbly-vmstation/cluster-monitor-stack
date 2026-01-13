@@ -920,10 +920,10 @@
           ✅ Grafana: http://{{ ansible_default_ipv4.address }}:30300
           ✅ Loki: http://{{ ansible_default_ipv4.address }}:31100
           
-          Credentials:
-          - Grafana: admin/admin (anonymous access enabled)
+          Grafana authentication:
+          - Use "Sign in with Keycloak" (OIDC) in the Grafana UI
           
           Verification:
-          kubectl get pods -n monitoring
-          kubectl get svc -n monitoring
+          sudo kubectl get pods -n monitoring
+          sudo kubectl get svc -n monitoring
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
