@@ -104,6 +104,15 @@ def _rewrite_value(value: Any, parent_key: str | None = None) -> Any:
         if parent_key == "datasource" and value == "${VAR_DATASOURCE}":
             return "Prometheus"
 
+        # Some dashboards hardcode datasource names that don't exist in our cluster.
+        # Keep this conservative to avoid touching non-datasource strings.
+        if parent_key == "datasource":
+            v_lower = value.lower()
+            if v_lower.startswith("prometheus"):
+                return "Prometheus"
+            if v_lower.startswith("loki"):
+                return "Loki"
+
         # Best-effort: handle placeholder-like datasource values only when we're inside a datasource field.
         if parent_key == "datasource" and (ANY_VAR_RE.match(value) or DOLLAR_VAR_RE.match(value)):
             return _default_datasource_name_for_placeholder(value)
@@ -137,10 +146,17 @@ def _rewrite_value(value: Any, parent_key: str | None = None) -> Any:
         # Datasource objects often look like: {"type": "prometheus", "uid": "${datasource}"}
         ds_type = new_obj.get("type")
         ds_uid = new_obj.get("uid")
-        if isinstance(ds_type, str) and isinstance(ds_uid, str) and ANY_VAR_RE.match(ds_uid):
+        if isinstance(ds_type, str) and isinstance(ds_uid, str) and (ANY_VAR_RE.match(ds_uid) or DOLLAR_VAR_RE.match(ds_uid)):
             if ds_type == "prometheus":
                 new_obj["uid"] = "prometheus"
             elif ds_type == "loki":
+                new_obj["uid"] = "loki"
+
+        # Some dashboards incorrectly place datasource *names* into uid fields.
+        if isinstance(ds_type, str) and isinstance(ds_uid, str):
+            if ds_type == "prometheus" and ds_uid.lower().startswith("prometheus"):
+                new_obj["uid"] = "prometheus"
+            if ds_type == "loki" and ds_uid.lower().startswith("loki"):
                 new_obj["uid"] = "loki"
         return new_obj
 
