@@ -62,12 +62,14 @@
       delegate_to: storagenodet3500
       run_once: true
 
-    - name: "Render dashboards locally (controller)"
+    - name: "Render dashboards on masternode (Linux)"
       ansible.builtin.shell: |
         set -euo pipefail
         SRC="{{ dashboards_dir }}"
         RENDER="{{ grafana_dashboards_render_script }}"
         TMP="/tmp/vmstation-grafana-dashboards-rendered"
+
+        command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required on masternode to render dashboards" >&2; exit 1; }
 
         if [ ! -d "$SRC" ]; then
           echo "ERROR: dashboards directory not found: $SRC" >&2
@@ -82,6 +84,13 @@
         rm -rf "$TMP"
         mkdir -p "$TMP"
         python3 "$RENDER" --src "$SRC" --dest "$TMP" --clean
+
+        BAD=$(grep -RInE '\$\{VAR_DATASOURCE\}|\$Datasource|\$datasource|grafana-piechart-panel|"__inputs"|"__requires"|"__elements"' "$TMP" || true)
+        if [ -n "$BAD" ]; then
+          echo "ERROR: Rendered dashboards still contain placeholders or export-only metadata:" >&2
+          echo "$BAD" >&2
+          exit 2
+        fi
 
         COUNT=$(find "$TMP" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')
         echo "Rendered dashboards: $COUNT"

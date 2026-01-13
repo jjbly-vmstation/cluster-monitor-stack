@@ -14,6 +14,9 @@
     RENDER="{{ role_path }}/../../../scripts/render_grafana_dashboards.py"
     TMP="/tmp/vmstation-grafana-dashboards-rendered"
 
+    # Ensure python is present on the rendering host.
+    command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required on the rendering host" >&2; exit 1; }
+
     if [ ! -d "$SRC" ]; then
       echo "ERROR: dashboards directory not found: $SRC" >&2
       exit 1
@@ -27,6 +30,15 @@
     rm -rf "$TMP"
     mkdir -p "$TMP"
     python3 "$RENDER" --src "$SRC" --dest "$TMP" --clean
+
+    # Validate rendered dashboards are fully sanitized for our provisioned environment.
+    # We only block on known-bad placeholders and missing-plugin types.
+    BAD=$(grep -RInE '\$\{VAR_DATASOURCE\}|\$Datasource|\$datasource|grafana-piechart-panel|"__inputs"|"__requires"|"__elements"' "$TMP" || true)
+    if [ -n "$BAD" ]; then
+      echo "ERROR: Rendered dashboards still contain placeholders or export-only metadata:" >&2
+      echo "$BAD" >&2
+      exit 2
+    fi
 
     COUNT=$(find "$TMP" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')
     echo "Rendered dashboards: $COUNT"

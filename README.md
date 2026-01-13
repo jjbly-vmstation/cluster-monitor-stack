@@ -80,9 +80,9 @@ This repository only contains the README and improvements/standards documentatio
 
 ### Grafana
 - Pre-provisioned datasources (Prometheus, Loki)
-- 8 enterprise-grade dashboards
+- Community dashboards are rendered/sanitized from `dashboards/*.json`
 - Anonymous read access enabled
-- Dashboard provisioning via ConfigMap
+- Dashboard provisioning via files on the NFS-backed Grafana PVC (not ConfigMaps)
 
 ### Loki
 - StatefulSet with persistent storage
@@ -169,7 +169,11 @@ Edit the respective deployment files in `manifests/*/deployment.yaml`.
 ### Adding Dashboards
 
 1. Add JSON file to `dashboards/`
-2. Redeploy: `kubectl apply -k .` (dashboards are synced onto the NFS-backed Grafana PVC)
+2. Re-render and sync to NFS via Ansible (runs on Linux hosts):
+  - `cd ansible`
+  - `ansible-playbook -i /srv/vmstation-org/cluster-setup/ansible/inventory/hosts.yml playbooks/update-grafana-dashboards.yaml`
+
+Note: Do not run the renderer on the Windows dev machine; it is executed on the Linux masternode and then copied to the NFS export host.
 
 ## Troubleshooting
 
