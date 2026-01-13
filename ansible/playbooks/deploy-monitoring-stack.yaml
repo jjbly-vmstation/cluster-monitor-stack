@@ -528,22 +528,31 @@
       become_user: root
       ansible.builtin.shell: |
         set -euo pipefail
-        kubectl --kubeconfig={{ kubeconfig }} -n monitoring exec deploy/grafana -- sh -c "
-          echo '== datasources =='; ls -la /etc/grafana/provisioning/datasources; echo;
-          echo '== dashboard providers =='; ls -la /etc/grafana/provisioning/dashboards; echo;
-          echo '== dashboards dir =='; ls -la /var/lib/grafana/dashboards | head -n 200; echo;
-          COUNT=$(find /var/lib/grafana/dashboards -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ');
-          echo "dashboard json count: $COUNT";
-          if [ "$COUNT" -lt 1 ]; then
-            echo '== mount/df hints =='; (mount | grep -E '/var/lib/grafana' || true); (df -h /var/lib/grafana || true); echo;
-            echo "ERROR: Grafana pod cannot see any dashboard JSON files under /var/lib/grafana/dashboards" >&2;
+        kubectl --kubeconfig={{ kubeconfig }} -n monitoring exec deploy/grafana -- sh -c '
+          echo "== datasources =="; ls -la /etc/grafana/provisioning/datasources || true; echo;
+          echo "== dashboard providers =="; ls -la /etc/grafana/provisioning/dashboards || true; echo;
+
+          if [ ! -d /var/lib/grafana/dashboards ]; then
+            echo "ERROR: dashboards directory missing in pod: /var/lib/grafana/dashboards" >&2;
+            echo "== /var/lib/grafana =="; ls -la /var/lib/grafana || true; echo;
+            echo "== mount/df hints =="; (mount | grep -E "/var/lib/grafana" || true); (df -h /var/lib/grafana || true); echo;
             exit 2;
           fi
-          if [ ! -f /var/lib/grafana/dashboards/kubernetes-cluster-dashboard.json ]; then
-            echo "ERROR: Home dashboard file missing: /var/lib/grafana/dashboards/kubernetes-cluster-dashboard.json" >&2;
+
+          echo "== dashboards dir =="; ls -la /var/lib/grafana/dashboards | head -n 200; echo;
+          COUNT=$(find /var/lib/grafana/dashboards -maxdepth 1 -type f -name "*.json" -print | wc -l | tr -d " ");
+          echo "dashboard json count: $COUNT";
+
+          if [ "$COUNT" -lt 1 ]; then
+            echo "ERROR: Grafana pod cannot see any dashboard JSON files under /var/lib/grafana/dashboards" >&2;
             exit 3;
           fi
-        "
+
+          if [ ! -f /var/lib/grafana/dashboards/kubernetes-cluster-dashboard.json ]; then
+            echo "ERROR: Home dashboard file missing: /var/lib/grafana/dashboards/kubernetes-cluster-dashboard.json" >&2;
+            exit 4;
+          fi
+        '
       args:
         executable: /bin/bash
       register: grafana_provisioning_check
