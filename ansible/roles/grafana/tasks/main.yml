@@ -7,20 +7,36 @@
   register: grafana_configmap
   changed_when: "'configured' in grafana_configmap.stdout or 'created' in grafana_configmap.stdout"
 
-- name: Deploy Grafana Dashboards ConfigMap (from repo dashboards/*.json)
+- name: Sync Grafana dashboards onto NFS-backed Grafana PVC (avoids ConfigMap size limits)
   ansible.builtin.shell: |
     set -euo pipefail
-    if [ ! -d "{{ grafana_dashboards_dir }}" ]; then
-      echo "ERROR: dashboards directory not found: {{ grafana_dashboards_dir }}" >&2
+    SRC="{{ grafana_dashboards_dir }}"
+    DEST="{{ grafana_data_dir }}/dashboards"
+
+    if [ ! -d "$SRC" ]; then
+      echo "ERROR: dashboards directory not found: $SRC" >&2
       exit 1
     fi
-    kubectl --kubeconfig={{ kubeconfig }} -n {{ monitoring_namespace }} create configmap grafana-dashboards \
-      --from-file="{{ grafana_dashboards_dir }}/" \
-      --dry-run=client -o yaml | kubectl --kubeconfig={{ kubeconfig }} apply -f -
+
+    mkdir -p "$DEST"
+
+    if command -v rsync >/dev/null 2>&1; then
+      rsync -a --delete --include='*.json' --exclude='*' "$SRC/" "$DEST/"
+    else
+      shopt -s nullglob
+      rm -f "$DEST"/*.json
+      for f in "$SRC"/*.json; do
+        cp -f "$f" "$DEST/"
+      done
+    fi
+
+    chown -R 472:472 "$DEST"
+    find "$DEST" -type f -name '*.json' -exec chmod 0644 {} \;
+    find "$DEST" -type d -exec chmod 0755 {} \;
   args:
     executable: /bin/bash
-  register: grafana_dashboards
-  changed_when: "'configured' in grafana_dashboards.stdout or 'created' in grafana_dashboards.stdout"
+  register: grafana_dashboards_sync
+  changed_when: true
 
 - name: Deploy Grafana Deployment
   ansible.builtin.command:

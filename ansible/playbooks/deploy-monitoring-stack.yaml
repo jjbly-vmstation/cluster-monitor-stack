@@ -19,6 +19,8 @@
   vars:
     manifests_dir: "{{ playbook_dir }}/../../manifests"
     kustomize_root: "{{ playbook_dir }}/../.."
+    grafana_dashboards_src_dir: "{{ playbook_dir }}/../../dashboards"
+    grafana_dashboards_dest_dir: "/srv/monitoring_data/grafana/dashboards"
     kubeconfig: "/etc/kubernetes/admin.conf"
   
   tasks:
@@ -86,6 +88,55 @@
         - { path: '/srv/monitoring_data/prometheus', owner: '65534', group: '65534' }
         - { path: '/srv/monitoring_data/loki', owner: '10001', group: '10001' }
         - { path: '/srv/monitoring_data/promtail', owner: '0', group: '0' }
+
+    - name: "Ensure Grafana dashboards directory exists on NFS"
+      ansible.builtin.file:
+        path: "{{ grafana_dashboards_dest_dir }}"
+        state: directory
+        mode: '0755'
+        owner: '472'
+        group: '472'
+      delegate_to: masternode
+      run_once: true
+
+    - name: "Sync Grafana dashboards onto NFS (avoids ConfigMap size limits)"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        SRC="{{ grafana_dashboards_src_dir }}"
+        DEST="{{ grafana_dashboards_dest_dir }}"
+
+        if [ ! -d "$SRC" ]; then
+          echo "ERROR: dashboards source directory not found: $SRC" >&2
+          exit 1
+        fi
+
+        mkdir -p "$DEST"
+
+        if command -v rsync >/dev/null 2>&1; then
+          rsync -a --delete --include='*.json' --exclude='*' "$SRC/" "$DEST/"
+        else
+          shopt -s nullglob
+          rm -f "$DEST"/*.json
+          for f in "$SRC"/*.json; do
+            cp -f "$f" "$DEST/"
+          done
+        fi
+
+        chown -R 472:472 "$DEST"
+        find "$DEST" -type f -name '*.json' -exec chmod 0644 {} \;
+        find "$DEST" -type d -exec chmod 0755 {} \;
+      args:
+        executable: /bin/bash
+      register: grafana_dashboards_sync
+      changed_when: true
+      delegate_to: masternode
+      run_once: true
+
+    - name: "Display Grafana dashboards sync result"
+      ansible.builtin.debug:
+        msg: "Dashboards synced to {{ grafana_dashboards_dest_dir }}"
+      delegate_to: masternode
+      run_once: true
 
     # Ensure NFS export has appropriate options and fix ownership on NFS server
     - name: "Ensure monitoring export uses no_root_squash and remove anonuid/anongid"
@@ -356,8 +407,8 @@
       ansible.builtin.debug:
         msg: "{{ deploy_result.stdout_lines }}"
 
-      # Ensure Grafana provisioning configmaps (datasources + dashboards) are applied first
-    - name: "Apply Grafana provisioning ConfigMaps (datasources + dashboards)"
+      # Ensure Grafana provisioning configmaps (datasources + dashboard providers) are applied
+    - name: "Apply Grafana provisioning ConfigMaps (datasources + dashboard providers)"
       become: true
       become_user: root
       ansible.builtin.command:

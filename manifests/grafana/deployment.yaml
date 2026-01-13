@@ -83,9 +83,6 @@ spec:
         - name: grafana-dashboard-providers
           mountPath: /etc/grafana/provisioning/dashboards
           readOnly: true
-        - name: grafana-dashboards
-          mountPath: /var/lib/grafana/dashboards
-          readOnly: true
         resources:
           requests:
             cpu: 100m
@@ -119,9 +116,6 @@ spec:
       - name: grafana-dashboard-providers
         configMap:
           name: grafana-dashboard-providers
-      - name: grafana-dashboards
-        configMap:
-          name: grafana-dashboards
 ---
 # Grafana PVC
 apiVersion: v1

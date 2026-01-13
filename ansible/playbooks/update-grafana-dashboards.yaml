@@ -17,6 +17,7 @@
     manifests_dir: "{{ playbook_dir }}/../../manifests"
     kustomize_root: "{{ playbook_dir }}/../.."
     dashboards_dir: "{{ playbook_dir }}/../../dashboards"
+    grafana_dashboards_dest_dir: "/srv/monitoring_data/grafana/dashboards"
     kubeconfig: "/etc/kubernetes/admin.conf"
     monitoring_namespace: monitoring
   
@@ -26,7 +27,7 @@
         msg: |
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
           Grafana Dashboard Update
-          - Update dashboards ConfigMap
+          - Sync dashboard JSON files onto Grafana PVC (NFS)
           - Restart Grafana to load changes
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -39,26 +40,65 @@
         paths: "{{ dashboards_dir }}"
         patterns: "*.json"
       register: dashboard_files
-      delegate_to: localhost
-      become: false
+      delegate_to: masternode
+      run_once: true
 
     - name: "Display available dashboards"
       ansible.builtin.debug:
         msg: "Found {{ dashboard_files.files | length }} dashboard files: {{ dashboard_files.files | map(attribute='path') | map('basename') | list | join(', ') }}"
 
     # =============================================================================
-    # Update Dashboards ConfigMap
+    # Sync Dashboards onto NFS-backed Grafana PVC
     # =============================================================================
-    
-    - name: "Update Grafana dashboards ConfigMap (kustomize generator)"
-      ansible.builtin.command:
-        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -k {{ kustomize_root }}
-      register: dashboards_update
-      changed_when: "'configured' in dashboards_update.stdout or 'created' in dashboards_update.stdout"
 
-    - name: "Display ConfigMap update result"
+    - name: "Ensure Grafana dashboards directory exists"
+      ansible.builtin.file:
+        path: "{{ grafana_dashboards_dest_dir }}"
+        state: directory
+        mode: '0755'
+        owner: '472'
+        group: '472'
+      delegate_to: masternode
+      run_once: true
+
+    - name: "Sync dashboard JSON files into Grafana dashboards directory"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        SRC="{{ dashboards_dir }}"
+        DEST="{{ grafana_dashboards_dest_dir }}"
+
+        if [ ! -d "$SRC" ]; then
+          echo "ERROR: dashboards directory not found: $SRC" >&2
+          exit 1
+        fi
+
+        mkdir -p "$DEST"
+
+        if command -v rsync >/dev/null 2>&1; then
+          rsync -a --delete --include='*.json' --exclude='*' "$SRC/" "$DEST/"
+        else
+          shopt -s nullglob
+          rm -f "$DEST"/*.json
+          for f in "$SRC"/*.json; do
+            cp -f "$f" "$DEST/"
+          done
+        fi
+
+        chown -R 472:472 "$DEST"
+        find "$DEST" -type f -name '*.json' -exec chmod 0644 {} \;
+        find "$DEST" -type d -exec chmod 0755 {} \;
+      args:
+        executable: /bin/bash
+      register: dashboards_sync
+      changed_when: true
+      delegate_to: masternode
+      run_once: true
+
+    - name: "Display dashboard sync result"
       ansible.builtin.debug:
-        msg: "{{ dashboards_update.stdout }}"
+        msg: "Dashboards synced to {{ grafana_dashboards_dest_dir }}"
+      delegate_to: masternode
+      run_once: true
 
     # =============================================================================
     # Restart Grafana to Load New Dashboards
