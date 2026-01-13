@@ -15,6 +15,7 @@
   become: true
   vars:
     manifests_dir: "{{ playbook_dir }}/../../manifests"
+    kustomize_root: "{{ playbook_dir }}/../.."
     dashboards_dir: "{{ playbook_dir }}/../../dashboards"
     kubeconfig: "/etc/kubernetes/admin.conf"
     monitoring_namespace: monitoring
@@ -51,7 +52,7 @@
     
     - name: "Update Grafana dashboards ConfigMap (kustomize generator)"
       ansible.builtin.command:
-        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -k {{ manifests_dir }}
+        cmd: kubectl --kubeconfig={{ kubeconfig }} apply -k {{ kustomize_root }}
       register: dashboards_update
       changed_when: "'configured' in dashboards_update.stdout or 'created' in dashboards_update.stdout"
 

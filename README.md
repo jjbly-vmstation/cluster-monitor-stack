@@ -29,7 +29,7 @@ This repository contains a complete monitoring stack deployment including:
 Deploy the entire monitoring stack using Kustomize:
 
 ```bash
-kubectl apply -k manifests/
+kubectl apply -k .
 ```
 
 Or using Ansible:

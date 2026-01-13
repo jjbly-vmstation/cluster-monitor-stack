@@ -1,0 +1,50 @@
+# VMStation Monitoring Stack (repo root)
+# Use with: kubectl apply -k .
+#
+# Why this exists:
+# - kubectl/kustomize enforces a load restrictor that prevents a kustomization in
+#   manifests/ from loading files outside that directory.
+# - Grafana dashboards live in dashboards/, so we generate the dashboards
+#   ConfigMap from here at repo root and include manifests/ as a base.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - manifests
+
+# Generate the Grafana dashboards ConfigMap from repository dashboard JSON files.
+# This ensures community dashboards named like `####_rev#.json` are provisioned
+# automatically alongside the built-in dashboards.
+configMapGenerator:
+  - name: grafana-dashboards
+    namespace: monitoring
+    files:
+      - dashboards/315_rev3.json
+      - dashboards/1860_rev42.json
+      - dashboards/6417_rev1.json
+      - dashboards/7587_rev3.json
+      - dashboards/8171_rev1.json
+      - dashboards/10441_rev2.json
+      - dashboards/11001_rev1.json
+      - dashboards/11454_rev14.json
+      - dashboards/13332_rev12.json
+      - dashboards/13659_rev1.json
+      - dashboards/14055_rev5.json
+      - dashboards/14900_rev2.json
+      - dashboards/14981_rev2.json
+      - dashboards/15661_rev2.json
+      - dashboards/15760_rev37.json
+      - dashboards/coredns-dashboard.json
+      - dashboards/ipmi-hardware-dashboard.json
+      - dashboards/kubernetes-cluster-dashboard.json
+      - dashboards/loki-dashboard.json
+      - dashboards/network-latency-dashboard.json
+      - dashboards/node-dashboard.json
+      - dashboards/prometheus-dashboard.json
+      - dashboards/syslog-dashboard.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app: grafana
+        app.kubernetes.io/name: grafana
+        app.kubernetes.io/component: visualization

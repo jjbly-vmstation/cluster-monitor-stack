@@ -18,6 +18,7 @@
   become: true
   vars:
     manifests_dir: "{{ playbook_dir }}/../../manifests"
+    kustomize_root: "{{ playbook_dir }}/../.."
     kubeconfig: "/etc/kubernetes/admin.conf"
   
   tasks:
@@ -293,13 +294,36 @@
           become: true
           become_user: root
           ansible.builtin.command:
-            cmd: kubectl --kubeconfig={{ kubeconfig }} apply -k {{ manifests_dir }}
+            cmd: kubectl --kubeconfig={{ kubeconfig }} apply -k {{ kustomize_root }}
           register: deploy_result
           failed_when: deploy_result.rc != 0
       rescue:
-        - name: "Detect immutable StatefulSet spec error and attempt safe recreate"
+        - name: "Detect immutable StatefulSet spec error"
+          ansible.builtin.set_fact:
+            immutable_sts_error: >-
+              {{
+                (
+                  (ansible_failed_result.stderr | default(''))
+                  is search('(?i)immutable')
+                )
+                or
+                (
+                  (ansible_failed_result.stderr | default(''))
+                  is search('(?i)field is immutable')
+                )
+              }}
+
+        - name: "Fail fast on non-immutable kustomize errors"
+          ansible.builtin.fail:
+            msg: >-
+              Monitoring kustomize apply failed with a non-immutable error; refusing to delete StatefulSets.
+              Error: {{ ansible_failed_result.stderr | default(ansible_failed_result.msg | default('unknown')) }}
+          when: not immutable_sts_error
+
+        - name: "Immutable StatefulSet spec error detected - attempting safe recreate"
           ansible.builtin.debug:
             msg: "Immutable StatefulSet spec error detected, recreating affected StatefulSets (prometheus,loki)"
+          when: immutable_sts_error
 
         - name: "Scale down and delete affected StatefulSets to allow spec update"
           ansible.builtin.shell: |
@@ -312,18 +336,21 @@
             done
           register: sts_cleanup
           changed_when: sts_cleanup.rc == 0
+          when: immutable_sts_error
 
         - name: "Reapply monitoring kustomize after recreating statefulsets"
           become: true
           become_user: root
           ansible.builtin.command:
-            cmd: kubectl --kubeconfig={{ kubeconfig }} apply -k {{ manifests_dir }}
+            cmd: kubectl --kubeconfig={{ kubeconfig }} apply -k {{ kustomize_root }}
           register: deploy_result_after
           failed_when: deploy_result_after.rc != 0
+          when: immutable_sts_error
 
         - name: "Set deploy_result to reapply output"
           ansible.builtin.set_fact:
             deploy_result: "{{ deploy_result_after }}"
+          when: immutable_sts_error
 
     - name: "Display deployment result"
       ansible.builtin.debug:
